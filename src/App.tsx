@@ -332,16 +332,5 @@ function App() {
     </div>
   );
 }
-<div style={{ marginTop: '20px', textAlign: 'center', paddingBottom: '20px' }}>
-   <a className="github-button" 
-      href="https://github.com/shubham-tech12/linked-post-generator" 
-      data-color-scheme="no-preference: light; light: light; dark: dark;" 
-      data-icon="octicon-star" 
-      data-size="large" 
-      data-show-count="true"
-      aria-label="Star shubham-tech12/linked-post-generator on GitHub">
-      Star
-   </a>
-</div>
 
 export default App;
