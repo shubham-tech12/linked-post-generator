@@ -8,7 +8,6 @@ export function App() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Check user session on load
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -21,7 +20,6 @@ export function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Handle Login / Signup
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -37,12 +35,10 @@ export function App() {
     setLoading(false);
   };
 
-  // Handle Logout
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
 
-  // Agar user logged in nahi hai, toh Login/Signup form dikhayenge
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white">
@@ -98,7 +94,6 @@ export function App() {
     );
   }
 
-  // Agar user logged in hai, toh aapka Main LinkedIn Post Generator UI yahan dikhega
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
       <div className="flex justify-between items-center max-w-4xl mx-auto mb-8 border-b border-gray-800 pb-4">
@@ -114,9 +109,8 @@ export function App() {
         </div>
       </div>
 
-      {/* Yahan aap apna baaki LinkedIn post generator ka UI component daal sakte hain */}
       <div className="max-w-4xl mx-auto bg-gray-800 p-6 rounded-xl border border-gray-700">
-        <p className="text-gray-300">🎉 Successfully logged in! Aapka generator yahan render hoga.</p>
+        <p className="text-gray-300">🎉 Successfully logged in! Your generator UI is active.</p>
       </div>
     </div>
   );
