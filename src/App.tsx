@@ -102,12 +102,7 @@ function App() {
   };
 
   const handleSimulatePayment = () => {
-    // Yahan apna Stripe ya Razorpay payment link dal sakte hain
-    // window.location.href = "YOUR_STRIPE_OR_RAZORPAY_LINK";
-    setIsPro(true);
-    localStorage.setItem('is_pro', 'true');
-    setShowUpgradeModal(false);
-    alert('🎉 Congratulations! You are now a PRO member with Unlimited Generations.');
+     window.location.href = "https://buy.stripe.com/test_6oUcN67N64wQ4498eOcfK00";
   };
 
   const handleSavePost = () => {
