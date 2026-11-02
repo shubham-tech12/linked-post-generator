@@ -102,7 +102,8 @@ function App() {
   };
 
   const handleSimulatePayment = () => {
-    // Simulated Stripe / Razorpay successful checkout
+    // Yahan apna Stripe ya Razorpay payment link dal sakte hain
+    // window.location.href = "YOUR_STRIPE_OR_RAZORPAY_LINK";
     setIsPro(true);
     localStorage.setItem('is_pro', 'true');
     setShowUpgradeModal(false);
@@ -113,7 +114,7 @@ function App() {
     if (!generatedPost) return;
     const newPost: SavedPost = {
       id: Date.now().toString(),
-      topic: topic || 'Custom Topic',
+      topic: topic.trim() || generatedPost.slice(0, 30) + '...',
       content: generatedPost,
       date: new Date().toLocaleDateString()
     };
@@ -241,14 +242,26 @@ function App() {
           <div className="flex-1 overflow-y-auto space-y-2 mb-2">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Saved Swipe Files ({savedPosts.length})</p>
             {savedPosts.map((post) => (
-              <div key={post.id} className="bg-[#212121] hover:bg-[#292929] p-2 rounded-lg border border-gray-800 text-xs cursor-pointer group flex justify-between items-center">
-                <span className="truncate text-gray-300 w-36" onClick={() => setGeneratedPost(post.content)}>{post.topic}</span>
-                <button onClick={() => handleDeleteSaved(post.id)} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px]">✕</button>
+              <div 
+                key={post.id} 
+                onClick={() => setGeneratedPost(post.content)}
+                className="bg-[#212121] hover:bg-[#292929] p-2 rounded-lg border border-gray-800 text-xs cursor-pointer group flex justify-between items-center transition-all"
+              >
+                <span className="truncate text-gray-300 w-36 pointer-events-none">{post.topic}</span>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteSaved(post.id);
+                  }} 
+                  className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] p-1"
+                >
+                  ✕
+                </button>
               </div>
             ))}
           </div>
 
-          {/* AFFILIATE / SPONSOR BANNER (Monetization Passive Income) */}
+          {/* AFFILIATE / SPONSOR BANNER */}
           <div className="bg-gradient-to-r from-blue-900/30 to-indigo-900/30 border border-blue-500/20 p-2.5 rounded-xl text-center">
             <p className="text-[10px] font-semibold text-blue-300">💡 Sponsored Tool</p>
             <p className="text-[9px] text-gray-400 mt-0.5">Automate your social calendar with Buffer.</p>
