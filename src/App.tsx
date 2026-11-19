@@ -127,7 +127,8 @@ export default function App() {
     setCopied(false);
     setSaveSuccess(false);
 
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+    const groqKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
 
     const prompt = `You are an expert LinkedIn Ghostwriter and Personal Branding Strategist.
 Turn the user's raw idea into a high-engagement, scroll-stopping LinkedIn post.
@@ -146,30 +147,16 @@ Strict Rules:
 5. Return ONLY the post text ready to copy-paste. Do NOT use markdown stars (** or *) because LinkedIn does not render markdown.`;
 
     try {
-      if (!apiKey) {
-        await new Promise((res) => setTimeout(res, 700));
-        setGeneratedPost(
-          `⚠️ Note: Add VITE_GEMINI_API_KEY in Vercel to unlock real AI generation.\n\nMeanwhile, here is a draft on "${topic}":\n\nMost people overcomplicate progress.\n\nHere is what actually moves the needle:\n• Start before you feel 100% ready\n• Focus on solving one real problem\n• Share your learnings publicly\n\nWhat's your take on this? Drop your thoughts below 👇\n\n${
-            includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
-          }`
-        );
-             } else {
-        const cleanKey = apiKey.trim();
-        const models = [
-          'gemini-3.5-flash-lite',
-          'gemini-3.8-flash',
-          'gemma-3-27b-it',
-        ];
-        let generatedText = '';
-        let lastError = 'Server busy, please try again';
+      let generatedText = '';
 
-        for (const modelName of models) {
+      // 1. Pehle Gemini try karein (5 sec max timeout)
+      if (geminiKey) {
+        for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 7000); // Max 7 sec per model
-
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
           try {
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${cleanKey}`,
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -179,30 +166,45 @@ Strict Rules:
                 }),
               }
             );
-
             clearTimeout(timeoutId);
-            const data = await response.json();
+            const data = await res.json();
             const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
             if (text && text.trim()) {
               generatedText = text.trim();
               break;
-            } else {
-              lastError = data?.error?.message || `Status ${response.status}`;
             }
-          } catch (err: any) {
+          } catch {
             clearTimeout(timeoutId);
-            lastError = err.name === 'AbortError' ? 'Timeout' : err.message;
           }
-        }
-
-        if (generatedText) {
-          setGeneratedPost(generatedText);
-        } else {
-          alert(`AI Busy (${lastError}). Please try again in a moment.`);
         }
       }
 
+      // 2. Agar Gemini busy/slow ho, toh 1-second ultra-fast Groq AI se generate karein
+      if (!generatedText && groqKey) {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+          }),
+        });
+        const groqData = await groqRes.json();
+        const text = groqData?.choices?.[0]?.message?.content;
+        if (text && text.trim()) {
+          generatedText = text.trim();
+        }
+      }
+
+      if (generatedText) {
+        setGeneratedPost(generatedText);
+      } else {
+        alert('AI servers are currently busy. Please add VITE_GROQ_API_KEY in Vercel or try again in a few seconds.');
+      }
     } catch (err) {
       console.error(err);
       alert('Network error while generating post.');
