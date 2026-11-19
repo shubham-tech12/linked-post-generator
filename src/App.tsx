@@ -153,10 +153,9 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-       } else {
+        } else {
         const cleanKey = apiKey.trim();
 
-        // 1. Pehle API key par available valid models fetch karein
         const listRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`
         );
@@ -167,43 +166,46 @@ Strict Rules:
           return;
         }
 
-        // 2. Jo models generateContent support karte hain unme se best flash/pro model chunein
         const validModels = (listData.models || [])
           .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-          .map((m: any) => m.name); // e.g., "models/gemini-2.0-flash"
+          .map((m: any) => m.name)
+          .filter((name: string) => !name.includes('2.5-flash'));
 
-         const preferredModel =
-          validModels.find((name: string) => name.includes('3.8-flash')) ||
-          validModels.find((name: string) => name.includes('3-flash')) ||
-          [...validModels].reverse().find((name: string) => name.includes('flash')) ||
-          validModels[0];
+        // Latest models ko pehle try karein, busy ho toh agle model par fallback karein
+        const candidateModels = [...validModels].reverse();
+        let generatedText = '';
+        let lastError = 'No supported models available';
 
-        if (!preferredModel) {
-          alert('No supported Gemini text models found for this API key.');
-          return;
+        for (const modelName of candidateModels) {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${cleanKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+              }),
+            }
+          );
+
+          const data = await response.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          if (text) {
+            generatedText = text.trim();
+            break;
+          } else {
+            lastError = data?.error?.message || 'Model busy';
+          }
         }
 
-        // 3. Selected model se post generate karein
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/${preferredModel}:generateContent?key=${cleanKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-            }),
-          }
-        );
-
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (text) {
-          setGeneratedPost(text.trim());
+        if (generatedText) {
+          setGeneratedPost(generatedText);
         } else {
-          alert(`Gemini Error: ${data?.error?.message || 'Could not generate post'}`);
+          alert(`Gemini Error: ${lastError}`);
         }
       }
+
     } catch (err) {
       console.error(err);
       alert('Network error while generating post.');
