@@ -127,7 +127,7 @@ export default function App() {
     setCopied(false);
     setSaveSuccess(false);
 
-     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
     const groqKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
 
     const prompt = `You are an expert LinkedIn Ghostwriter and Personal Branding Strategist.
@@ -180,6 +180,7 @@ Strict Rules:
       }
 
       // 2. Agar Gemini busy/slow ho, toh 1-second ultra-fast Groq AI se generate karein
+       let groqError = '';
       if (!generatedText && groqKey) {
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
@@ -197,14 +198,23 @@ Strict Rules:
         const text = groqData?.choices?.[0]?.message?.content;
         if (text && text.trim()) {
           generatedText = text.trim();
+        } else {
+          groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
         }
       }
 
       if (generatedText) {
         setGeneratedPost(generatedText);
       } else {
-        alert('AI servers are currently busy. Please add VITE_GROQ_API_KEY in Vercel or try again in a few seconds.');
+        alert(
+          !groqKey
+            ? 'VITE_GROQ_API_KEY build mein nahi mili! Vercel Environment Variables ka naam check karein.'
+            : `Groq Error: ${groqError}`
+        );
       }
+      // <--- YAHAN TAK PASTE HOGA --->
+
+    
     } catch (err) {
       console.error(err);
       alert('Network error while generating post.');
