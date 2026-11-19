@@ -143,18 +143,22 @@ Strict Rules:
               'Content-Type': 'application/json',
               Authorization: `Bearer ${groqKey}`,
             },
-            body: JSON.stringify({
+             body: JSON.stringify({
               model: activeGroqModel,
               messages: [{ role: 'user', content: prompt }],
               temperature: 0.7,
-              max_tokens: 500,
+              max_tokens: 2048,
             }),
           });
-          const groqData = await groqRes.json();
-          const text = groqData?.choices?.[0]?.message?.content;
-          if (text && text.trim()) {
+           const groqData = await groqRes.json();
+          const rawText =
+            groqData?.choices?.[0]?.message?.content ||
+            groqData?.choices?.[0]?.message?.reasoning ||
+            '';
+          const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          if (text) {
             sessionStorage.setItem('groq_active_model', activeGroqModel);
-            generatedText = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            generatedText = text;
           } else {
             sessionStorage.removeItem('groq_active_model');
             groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
