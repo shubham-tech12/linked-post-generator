@@ -153,68 +153,79 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-          } else {
+           } else {
         const cleanKey = apiKey.trim();
-        const models = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash'];
+        const models = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
         let success = false;
-        let lastError = 'Model busy, please try again';
+        let lastError = 'Server busy, please try again';
 
         for (const modelName of models) {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${cleanKey}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                  thinkingConfig: { thinkingBudget: 0 },
-                },
-              }),
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000); // Max 8 sec wait per model
+
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${cleanKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: {
+                    thinkingConfig: { thinkingBudget: 0 },
+                  },
+                }),
+              }
+            );
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok || !response.body) {
+              const errData = await response.json().catch(() => ({}));
+              lastError = errData?.error?.message || `Error ${response.status}`;
+              continue;
             }
-          );
 
-          if (!response.ok || !response.body) {
-            const errData = await response.json().catch(() => ({}));
-            lastError = errData?.error?.message || lastError;
-            continue;
-          }
+            setGeneratedPost('');
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
 
-          // Stream start hote hi purana text clear karke live typing dikhayein
-          setGeneratedPost('');
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let fullText = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split('\n');
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const jsonStr = line.slice(6).trim();
-                if (!jsonStr || jsonStr === '[DONE]') continue;
-                try {
-                  const parsed = JSON.parse(jsonStr);
-                  const partText = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                  if (partText) {
-                    fullText += partText;
-                    setGeneratedPost(fullText);
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const jsonStr = line.slice(6).trim();
+                  if (!jsonStr || jsonStr === '[DONE]') continue;
+                  try {
+                    const parsed = JSON.parse(jsonStr);
+                    const partText = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    if (partText) {
+                      fullText += partText;
+                      setGeneratedPost(fullText);
+                    }
+                  } catch {
+                    // Ignore partial chunk
                   }
-                } catch {
-                  // Partial JSON chunk ko ignore karein
                 }
               }
             }
-          }
 
-          if (fullText.trim()) {
-            setGeneratedPost(fullText.trim());
-            success = true;
-            break;
+            if (fullText.trim()) {
+              setGeneratedPost(fullText.trim());
+              success = true;
+              break;
+            }
+          } catch (err: any) {
+            clearTimeout(timeoutId);
+            lastError = err.name === 'AbortError' ? 'Model timed out, switched...' : err.message;
+            continue;
           }
         }
 
