@@ -153,9 +153,38 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-      } else {
+       } else {
+        const cleanKey = apiKey.trim();
+
+        // 1. Pehle API key par available valid models fetch karein
+        const listRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`
+        );
+        const listData = await listRes.json();
+
+        if (!listRes.ok) {
+          alert(`API Key Error: ${listData?.error?.message || 'Invalid API Key'}`);
+          return;
+        }
+
+        // 2. Jo models generateContent support karte hain unme se best flash/pro model chunein
+        const validModels = (listData.models || [])
+          .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+          .map((m: any) => m.name); // e.g., "models/gemini-2.0-flash"
+
+        const preferredModel =
+          validModels.find((name: string) => name.includes('flash')) ||
+          validModels.find((name: string) => name.includes('pro')) ||
+          validModels[0];
+
+        if (!preferredModel) {
+          alert('No supported Gemini text models found for this API key.');
+          return;
+        }
+
+        // 3. Selected model se post generate karein
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/${preferredModel}:generateContent?key=${cleanKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -164,12 +193,14 @@ Strict Rules:
             }),
           }
         );
+
         const data = await response.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
         if (text) {
           setGeneratedPost(text.trim());
         } else {
-          alert('AI response error. Please verify your VITE_GEMINI_API_KEY.');
+          alert(`Gemini Error: ${data?.error?.message || 'Could not generate post'}`);
         }
       }
     } catch (err) {
