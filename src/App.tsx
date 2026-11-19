@@ -153,37 +153,23 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-        } else {
+         } else {
         const cleanKey = apiKey.trim();
-
-        const listRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`
-        );
-        const listData = await listRes.json();
-
-        if (!listRes.ok) {
-          alert(`API Key Error: ${listData?.error?.message || 'Invalid API Key'}`);
-          return;
-        }
-
-        const validModels = (listData.models || [])
-          .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
-          .map((m: any) => m.name)
-          .filter((name: string) => !name.includes('2.5-flash'));
-
-        // Latest models ko pehle try karein, busy ho toh agle model par fallback karein
-        const candidateModels = [...validModels].reverse();
+        const fastModels = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash'];
         let generatedText = '';
-        let lastError = 'No supported models available';
+        let lastError = 'Model busy, please try again';
 
-        for (const modelName of candidateModels) {
+        for (const modelName of fastModels) {
           const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${cleanKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${cleanKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  thinkingConfig: { thinkingBudget: 0 },
+                },
               }),
             }
           );
@@ -195,7 +181,7 @@ Strict Rules:
             generatedText = text.trim();
             break;
           } else {
-            lastError = data?.error?.message || 'Model busy';
+            lastError = data?.error?.message || lastError;
           }
         }
 
