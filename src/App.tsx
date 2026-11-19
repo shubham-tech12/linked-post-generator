@@ -181,37 +181,15 @@ Strict Rules:
 
       // 2. Agar Gemini busy/slow ho, toh 1-second ultra-fast Groq AI se generate karein
         // 2. Agar Gemini busy/slow ho, toh Groq AI se generate karein
-       // 1. Pehle Ultra-Fast Groq AI try karein (0.5 - 1.5 sec response)
+       // 1. Direct Ultra-Fast Groq AI (~1 second response)
       let groqError = '';
       if (groqKey) {
-        let groqModels = [
+        const fastModels = [
           'llama-3.1-8b-instant',
           'meta-llama/llama-4-scout-17b-16e-instruct',
-          'qwen/qwen3-32b',
-          'openai/gpt-oss-20b',
         ];
-        try {
-          const listRes = await fetch('https://api.groq.com/openai/v1/models', {
-            headers: { Authorization: `Bearer ${groqKey}` },
-          });
-          const listData = await listRes.json();
-          const available = (listData?.data || [])
-            .map((m: any) => m.id)
-            .filter(
-              (id: string) =>
-                !id.includes('whisper') &&
-                !id.includes('guard') &&
-                !id.includes('tts') &&
-                !id.includes('compound')
-            );
-          if (available.length > 0) {
-            groqModels = available;
-          }
-        } catch {
-          // Fallback list use karein
-        }
 
-        for (const groqModel of groqModels) {
+        for (const groqModel of fastModels) {
           const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -222,20 +200,19 @@ Strict Rules:
               model: groqModel,
               messages: [{ role: 'user', content: prompt }],
               temperature: 0.7,
+              max_tokens: 500,
             }),
           });
           const groqData = await groqRes.json();
           const text = groqData?.choices?.[0]?.message?.content;
           if (text && text.trim()) {
-            // Agar reasoning model (<think>...</think>) ho toh clean karein
-            generatedText = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-            if (generatedText) break;
+            generatedText = text.trim();
+            break;
           } else {
             groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
           }
         }
       }
-
       // 2. Agar Groq fail ho toh Gemini fallback try karein
       if (!generatedText && geminiKey) {
         for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
