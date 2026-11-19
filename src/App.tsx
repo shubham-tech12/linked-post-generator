@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Copy, Check, Bookmark, Trash2, LogOut, RefreshCw } from 'lucide-react';
 import { supabase } from './supabase';
+import { AuthPage } from './components/AuthPage';
+import { LinkedInPreview } from './components/LinkedInPreview';
 
 interface SavedPost {
   id: string;
@@ -9,78 +12,53 @@ interface SavedPost {
   created_at: string;
 }
 
-const SAMPLE_TOPICS = [
-  {
-    label: '🚀 Project Launch',
-    text: 'How I built and deployed my own AI LinkedIn Post Generator using React, TypeScript, Supabase, and Vercel.',
-  },
-  {
-    label: '💼 Job / Career Tip',
-    text: '5 resume mistakes that get freshers rejected in the first 10 seconds—and how to fix them.',
-  },
-  {
-    label: '🔥 Coding Journey',
-    text: 'Why building real-world projects beats watching 100 hours of coding tutorials.',
-  },
-];
-
 export default function App() {
-  // Auth States
   const [user, setUser] = useState<any>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  // Generator States
   const [topic, setTopic] = useState('');
   const [tone, setTone] = useState('Storytelling');
-  const [length, setLength] = useState('Medium');
-  const [includeHashtags, setIncludeHashtags] = useState(true);
+  const [length, setLength] = useState('Medium (~150 words)');
   const [includeEmojis, setIncludeEmojis] = useState(true);
-  const [headline, setHeadline] = useState('Full-Stack Developer | Building in Public');
+  const [includeHashtags, setIncludeHashtags] = useState(true);
+
   const [generatedPost, setGeneratedPost] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Saved Posts States
   const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const previewRef = useRef<HTMLTextAreaElement>(null);
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      setAuthLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch user's saved posts on login
   useEffect(() => {
     if (user) {
       fetchSavedPosts();
+    } else {
+      setSavedPosts([]);
     }
   }, [user]);
 
-  // Auto-resize preview textarea to remove awkward inner scrollbars
-  useEffect(() => {
-    if (previewRef.current) {
-      previewRef.current.style.height = 'auto';
-      previewRef.current.style.height = `${previewRef.current.scrollHeight}px`;
-    }
-  }, [generatedPost]);
-
   const fetchSavedPosts = async () => {
+    if (!user) return;
     const { data, error } = await supabase
       .from('posts')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
     if (!error && data) {
@@ -88,47 +66,23 @@ export default function App() {
     }
   };
 
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-
-    if (isSignUp) {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) alert(error.message);
-      else alert('🎉 Signup successful! Check your email or log in.');
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) alert(error.message);
-    }
-    setAuthLoading(false);
-  };
-
-  const handleGoogleLogin = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-    if (error) alert(error.message);
-  };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setSavedPosts([]);
-    setGeneratedPost('');
   };
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!topic.trim()) return;
+    if (!topic.trim()) {
+      alert('Please enter a post topic or rough idea first.');
+      return;
+    }
 
     setIsGenerating(true);
     setCopied(false);
     setSaveSuccess(false);
 
-    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
     const groqKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
 
     const prompt = `You are an expert LinkedIn Ghostwriter and Personal Branding Strategist.
 Turn the user's raw idea into a high-engagement, scroll-stopping LinkedIn post.
@@ -148,39 +102,9 @@ Strict Rules:
 
     try {
       let generatedText = '';
-
-      // 1. Pehle Gemini try karein (5 sec max timeout)
-      if (geminiKey) {
-        for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: controller.signal,
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                }),
-              }
-            );
-            clearTimeout(timeoutId);
-            const data = await res.json();
-            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text && text.trim()) {
-              generatedText = text.trim();
-              break;
-            }
-          } catch {
-            clearTimeout(timeoutId);
-          }
-        }
-      }
-
-       // 1. Direct Ultra-Fast Groq AI (Smart Cached Active Model - ~1 sec response)
       let groqError = '';
+
+      // 1. PEHLE Ultra-Fast Groq AI chalega (~1 second response)
       if (groqKey) {
         let activeGroqModel = sessionStorage.getItem('groq_active_model') || '';
 
@@ -200,7 +124,6 @@ Strict Rules:
                   !id.includes('compound')
               );
 
-            // Fast non-reasoning llama/gemma/mistral model ko priority dein
             const preferred = available.find(
               (id) =>
                 (id.includes('llama') || id.includes('gemma') || id.includes('mistral')) &&
@@ -238,7 +161,8 @@ Strict Rules:
           }
         }
       }
-      // 2. Agar Groq fail ho toh Gemini fallback try karein
+
+      // 2. SIRF agar Groq fail ho toh Gemini fallback chalega
       if (!generatedText && geminiKey) {
         for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
           const controller = new AbortController();
@@ -273,19 +197,23 @@ Strict Rules:
       } else {
         alert(
           !groqKey
-            ? 'VITE_GROQ_API_KEY missing in Vercel!'
-            : `Generation Failed: ${groqError || 'Please try again'}`
+            ? 'VITE_GROQ_API_KEY missing in Vercel Environment Variables!'
+            : `Generation Failed: ${groqError || 'AI servers are busy, please try again.'}`
         );
       }
-      // <--- YAHAN TAK PASTE HOGA --->
-
-    
     } catch (err) {
       console.error(err);
       alert('Network error while generating post.');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleCopy = () => {
+    if (!generatedPost) return;
+    navigator.clipboard.writeText(generatedPost);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleSavePost = async () => {
@@ -318,378 +246,299 @@ Strict Rules:
     }
   };
 
-  const handleCopy = (textToCopy = generatedPost) => {
-    if (!textToCopy) return;
-    navigator.clipboard.writeText(textToCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  // Auth Screen
-  if (!user) {
+  if (authLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-900 text-white px-4">
-        <div className="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
-          <h2 className="text-2xl font-bold mb-6 text-center text-indigo-400">
-            {isSignUp ? '✨ Create Account' : '🔑 Welcome Back'}
-          </h2>
-
-          <form onSubmit={handleAuth} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1 text-gray-300">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-gray-900 rounded border border-gray-700 focus:outline-none focus:border-indigo-500 text-white"
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1 text-gray-300">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-gray-900 rounded border border-gray-700 focus:outline-none focus:border-indigo-500 text-white"
-                placeholder="••••••••"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={authLoading}
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 rounded font-semibold transition text-white shadow-lg"
-            >
-              {authLoading ? 'Please wait...' : isSignUp ? 'Sign Up' : 'Login'}
-            </button>
-          </form>
-
-          <div className="my-5 flex items-center">
-            <div className="flex-grow border-t border-gray-700"></div>
-            <span className="px-3 text-xs text-gray-400 uppercase">or</span>
-            <div className="flex-grow border-t border-gray-700"></div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            className="w-full py-2.5 bg-white hover:bg-gray-100 text-gray-900 rounded font-semibold transition flex items-center justify-center gap-3 shadow-md"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
-              <path
-                fill="#4285F4"
-                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96z"
-              />
-            </svg>
-            Continue with Google
-          </button>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-sm text-indigo-400 hover:underline"
-            >
-              {isSignUp ? 'Already have an account? Login' : "Don't have an account? Sign Up"}
-            </button>
-          </div>
-        </div>
+      <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center text-white">
+        <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
       </div>
     );
   }
 
-  const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Creator';
-  const avatarUrl = user.user_metadata?.avatar_url;
-  const charCount = generatedPost.length;
+  if (!user) {
+    return <AuthPage />;
+  }
 
-  // Main Workspace
+  const userName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split('@')[0] ||
+    'LinkedIn Creator';
+  const userAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || '';
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-6">
-      {/* Top Navbar */}
-      <div className="flex justify-between items-center max-w-6xl mx-auto mb-8 border-b border-gray-800 pb-4">
-        <h1 className="text-xl sm:text-2xl font-bold text-indigo-400">🚀 LinkedIn Post Generator</h1>
-        <div className="flex items-center gap-3">
-          {avatarUrl && (
-            <img src={avatarUrl} alt="Profile" className="w-8 h-8 rounded-full border border-indigo-500" />
-          )}
-          <span className="text-sm text-gray-300 hidden sm:inline">{displayName}</span>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-red-600/80 hover:bg-red-600 rounded text-sm font-medium transition"
-          >
-            Logout
-          </button>
-        </div>
-      </div>
-
-      {/* Generator & Live Preview Grid */}
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-        {/* Left Card: Controls */}
-        <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-100">✍️ Create Your Post</h2>
-            {topic && (
-              <button
-                type="button"
-                onClick={() => setTopic('')}
-                className="text-xs text-gray-400 hover:text-white transition"
-              >
-                Clear
-              </button>
-            )}
+    <div className="min-h-screen bg-[#0B0F19] text-slate-100">
+      {/* Navbar */}
+      <header className="border-b border-slate-800/80 bg-[#0F1629]/90 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl">🚀</span>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+              LinkedIn Post Generator
+            </h1>
           </div>
 
-          {/* Quick Sample Chips */}
-          <div className="mb-4">
-            <p className="text-xs text-gray-400 mb-2">Try a quick idea:</p>
-            <div className="flex flex-wrap gap-2">
-              {SAMPLE_TOPICS.map((sample) => (
-                <button
-                  key={sample.label}
-                  type="button"
-                  onClick={() => setTopic(sample.text)}
-                  className="text-xs bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-gray-700 px-2.5 py-1.5 rounded-full transition"
-                >
-                  {sample.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <form onSubmit={handleGenerate} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">
-                Post Topic or Rough Idea
-              </label>
-              <textarea
-                rows={4}
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                required
-                placeholder="Write your idea, story, or rough notes here..."
-                className="w-full p-3 bg-gray-900 rounded-lg border border-gray-700 focus:outline-none focus:border-indigo-500 text-white text-sm"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-300">Tone</label>
-                <select
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  className="w-full p-2.5 bg-gray-900 rounded-lg border border-gray-700 text-white text-sm focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Storytelling">📖 Storytelling</option>
-                  <option value="Viral Hook">🔥 Viral / Punchy</option>
-                  <option value="Educational">💡 Educational</option>
-                  <option value="Contrarian">⚡ Bold / Contrarian</option>
-                  <option value="Professional">👔 Professional</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1 text-gray-300">Length</label>
-                <select
-                  value={length}
-                  onChange={(e) => setLength(e.target.value)}
-                  className="w-full p-2.5 bg-gray-900 rounded-lg border border-gray-700 text-white text-sm focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="Short">Short (~80 words)</option>
-                  <option value="Medium">Medium (~150 words)</option>
-                  <option value="Long">Long-form (~250 words)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeEmojis}
-                  onChange={(e) => setIncludeEmojis(e.target.checked)}
-                  className="rounded text-indigo-600 bg-gray-900 border-gray-700"
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-slate-800/70 px-3 py-1.5 rounded-full border border-slate-700/60">
+              {userAvatar ? (
+                <img
+                  src={userAvatar}
+                  alt={userName}
+                  className="w-6 h-6 rounded-full object-cover"
                 />
-                Include Emojis
-              </label>
-
-              <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeHashtags}
-                  onChange={(e) => setIncludeHashtags(e.target.checked)}
-                  className="rounded text-indigo-600 bg-gray-900 border-gray-700"
-                />
-                Include Hashtags
-              </label>
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold">
+                  {userName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span className="text-sm text-slate-200 font-medium hidden sm:inline">
+                {userName}
+              </span>
             </div>
 
             <button
-              type="submit"
-              disabled={isGenerating}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg font-semibold transition text-white shadow-lg"
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-sm font-medium transition"
             >
-              {isGenerating ? '✨ Writing your post...' : '⚡ Generate Post'}
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
             </button>
-          </form>
+          </div>
         </div>
+      </header>
 
-        {/* Right Card: Auto-Expanding LinkedIn Preview */}
-        <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
-            <h2 className="text-lg font-semibold text-gray-100">👀 Live LinkedIn Preview</h2>
-            {generatedPost && (
-              <div className="flex items-center gap-2">
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Input Form */}
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <span>✍️</span> Create Your Post
+              </h2>
+              {topic && (
                 <button
-                  onClick={handleSavePost}
-                  disabled={isSaving}
-                  className="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-600 rounded text-xs font-medium transition text-white"
+                  type="button"
+                  onClick={() => {
+                    setTopic('');
+                    setGeneratedPost('');
+                  }}
+                  className="text-xs text-slate-400 hover:text-slate-200 transition"
                 >
-                  {saveSuccess ? '✅ Saved!' : isSaving ? 'Saving...' : '💾 Save Post'}
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Quick Idea Chips */}
+            <div className="mb-4">
+              <p className="text-xs text-slate-400 mb-2">Try a quick idea:</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTopic('Just launched my new full-stack web app after weeks of late-night coding!')
+                  }
+                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+                >
+                  🚀 Project Launch
                 </button>
                 <button
-                  onClick={() => handleCopy()}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs font-medium transition text-indigo-300"
+                  type="button"
+                  onClick={() =>
+                    setTopic('3 lessons I learned while preparing for tech interviews as a developer')
+                  }
+                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
                 >
-                  {copied ? '✅ Copied!' : '📋 Copy Post'}
+                  💼 Job / Career Tip
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTopic('Why building projects in public helped me grow faster than just watching tutorials')
+                  }
+                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
+                >
+                  🔥 Coding Journey
                 </button>
               </div>
-            )}
+            </div>
+
+            <form onSubmit={handleGenerate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                  Post Topic or Rough Idea
+                </label>
+                <textarea
+                  rows={4}
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="Write your raw thought, project update, or lesson learned..."
+                  className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                    Tone
+                  </label>
+                  <select
+                    value={tone}
+                    onChange={(e) => setTone(e.target.value)}
+                    className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Storytelling">📖 Storytelling</option>
+                    <option value="Professional & Insightful">💼 Professional & Insightful</option>
+                    <option value="Bold & Contrarian">🔥 Bold & Contrarian</option>
+                    <option value="Educational / How-To">💡 Educational / How-To</option>
+                    <option value="Casual & Authentic">😊 Casual & Authentic</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                    Length
+                  </label>
+                  <select
+                    value={length}
+                    onChange={(e) => setLength(e.target.value)}
+                    className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Short (~80 words)">Short (~80 words)</option>
+                    <option value="Medium (~150 words)">Medium (~150 words)</option>
+                    <option value="Long (~250 words)">Long (~250 words)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6 pt-1">
+                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeEmojis}
+                    onChange={(e) => setIncludeEmojis(e.target.checked)}
+                    className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+                  />
+                  Include Emojis
+                </label>
+
+                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeHashtags}
+                    onChange={(e) => setIncludeHashtags(e.target.checked)}
+                    className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+                  />
+                  Include Hashtags
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isGenerating}
+                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-60 font-semibold text-white shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Sparkles className={`w-5 h-5 ${isGenerating ? 'animate-spin' : ''}`} />
+                <span>{isGenerating ? 'Writing your post...' : '⚡ Generate Post'}</span>
+              </button>
+            </form>
           </div>
 
-          <div className="bg-white text-gray-900 rounded-lg p-4 shadow-md">
-            {/* Profile Header with Editable Headline */}
-            <div className="flex items-start gap-3 mb-3">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={displayName} className="w-11 h-11 rounded-full object-cover mt-0.5" />
-              ) : (
-                <div className="w-11 h-11 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-lg">
-                  {displayName[0]?.toUpperCase()}
+          {/* Right Column: Live LinkedIn Preview */}
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <span>👀</span> Live LinkedIn Preview
+              </h2>
+
+              {generatedPost && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={handleSavePost}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-xs font-medium text-indigo-300 border border-indigo-500/40 transition"
+                  >
+                    <Bookmark className="w-3.5 h-3.5" />
+                    <span>{saveSuccess ? 'Saved!' : isSaving ? 'Saving...' : 'Save'}</span>
+                  </button>
                 </div>
               )}
-              <div className="flex-1">
-                <p className="font-semibold text-sm text-gray-900">{displayName}</p>
-                <input
-                  type="text"
-                  value={headline}
-                  onChange={(e) => setHeadline(e.target.value)}
-                  className="w-full text-xs text-gray-500 bg-transparent focus:outline-none focus:bg-gray-100 rounded px-1 -ml-1"
-                  title="Click to edit your LinkedIn headline"
-                />
-                <p className="text-[11px] text-gray-400">Just now • 🌐</p>
-              </div>
             </div>
 
-            {generatedPost ? (
-              <textarea
-                ref={previewRef}
-                value={generatedPost}
-                onChange={(e) => setGeneratedPost(e.target.value)}
-                className="w-full text-sm text-gray-800 whitespace-pre-wrap leading-relaxed focus:outline-none resize-none overflow-hidden border border-transparent focus:border-gray-200 rounded p-1"
+            <div className="flex-1">
+               <LinkedInPreview
+                text={generatedPost}
+                setText={setGeneratedPost}
+                userName={userName}
               />
-            ) : (
-              <div className="py-16 text-center text-gray-400 text-sm">
-                Select a sample idea or write your own topic on the left, then click <b>Generate Post</b>.
-              </div>
-            )}
-
-            {/* Character Counter */}
-            {generatedPost && (
-              <div className="flex justify-end mt-2">
-                <span
-                  className={`text-[11px] font-medium ${
-                    charCount > 3000 ? 'text-red-600' : 'text-gray-400'
-                  }`}
-                >
-                  {charCount} / 3,000 characters
-                </span>
-              </div>
-            )}
-
-            <div className="border-t border-gray-200 mt-3 pt-2.5 flex justify-around text-xs font-medium text-gray-500">
-              <span>👍 Like</span>
-              <span>💬 Comment</span>
-              <span>🔁 Repost</span>
-              <span>📤 Send</span>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Bottom Section: Saved Posts History */}
-      <div className="max-w-6xl mx-auto mt-10">
-        <h2 className="text-lg font-semibold text-gray-200 mb-4">
-          📚 Your Saved Posts ({savedPosts.length})
-        </h2>
+        {/* Saved Posts Section */}
+        <section className="mt-10 bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span>📚</span> Your Saved Posts ({savedPosts.length})
+          </h3>
 
-        {savedPosts.length === 0 ? (
-          <div className="bg-gray-800/60 border border-gray-700/70 rounded-xl p-6 text-center text-sm text-gray-400">
-            No saved posts yet. Generate a post and click <b>💾 Save Post</b> to keep it here!
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {savedPosts.map((post) => (
-              <div
-                key={post.id}
-                className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs font-medium bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full">
-                      {post.tone || 'Post'}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(post.created_at).toLocaleDateString()}
-                    </span>
+          {savedPosts.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No saved posts yet. Generate a post and click Save to keep it here!
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {savedPosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="bg-[#0B0F19] border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                        {post.tone}
+                      </span>
+                      <button
+                        onClick={() => handleDeletePost(post.id)}
+                        className="text-slate-500 hover:text-red-400 transition"
+                        title="Delete post"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="text-sm text-slate-200 whitespace-pre-line line-clamp-5">
+                      {post.content}
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-300 whitespace-pre-line line-clamp-4 mb-4">
-                    {post.content}
-                  </p>
-                </div>
 
-                <div className="flex justify-end gap-2 border-t border-gray-700 pt-3">
                   <button
-                    onClick={() => {
-                      setGeneratedPost(post.content);
-                      setTopic(post.topic);
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}
-                    className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-200 transition"
+                    onClick={() => setGeneratedPost(post.content)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium self-start transition"
                   >
-                    ✏️ Load in Editor
-                  </button>
-                  <button
-                    onClick={() => handleCopy(post.content)}
-                    className="px-3 py-1 bg-indigo-600/80 hover:bg-indigo-600 rounded text-xs text-white transition"
-                  >
-                    📋 Copy
-                  </button>
-                  <button
-                    onClick={() => handleDeletePost(post.id)}
-                    className="px-3 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-xs transition"
-                  >
-                    🗑️
+                    Load into Preview →
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   );
 }
