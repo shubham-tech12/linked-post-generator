@@ -172,9 +172,10 @@ Strict Rules:
           .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
           .map((m: any) => m.name); // e.g., "models/gemini-2.0-flash"
 
-        const preferredModel =
-          validModels.find((name: string) => name.includes('flash')) ||
-          validModels.find((name: string) => name.includes('pro')) ||
+         const preferredModel =
+          validModels.find((name: string) => name.includes('3.8-flash')) ||
+          validModels.find((name: string) => name.includes('3-flash')) ||
+          [...validModels].reverse().find((name: string) => name.includes('flash')) ||
           validModels[0];
 
         if (!preferredModel) {
