@@ -180,37 +180,48 @@ Strict Rules:
       }
 
       // 2. Agar Gemini busy/slow ho, toh 1-second ultra-fast Groq AI se generate karein
-       let groqError = '';
+        // 2. Agar Gemini busy/slow ho, toh Groq AI se generate karein
+      let groqError = '';
       if (!generatedText && groqKey) {
-        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${groqKey}`,
-          },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.7,
-          }),
-        });
-        const groqData = await groqRes.json();
-        const text = groqData?.choices?.[0]?.message?.content;
-        if (text && text.trim()) {
-          generatedText = text.trim();
-        } else {
-          groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
+        // Groq ke active models fetch karke best chat model auto-select karein
+        let groqModels = ['llama-3.1-8b-instant', 'meta-llama/llama-4-scout-17b-16e-instruct'];
+        try {
+          const listRes = await fetch('https://api.groq.com/openai/v1/models', {
+            headers: { Authorization: `Bearer ${groqKey}` },
+          });
+          const listData = await listRes.json();
+          const available = (listData?.data || [])
+            .map((m: any) => m.id)
+            .filter((id: string) => !id.includes('whisper') && !id.includes('guard') && !id.includes('tts'));
+          if (available.length > 0) {
+            groqModels = available;
+          }
+        } catch {
+          // Fallback list use karein
         }
-      }
 
-      if (generatedText) {
-        setGeneratedPost(generatedText);
-      } else {
-        alert(
-          !groqKey
-            ? 'VITE_GROQ_API_KEY build mein nahi mili! Vercel Environment Variables ka naam check karein.'
-            : `Groq Error: ${groqError}`
-        );
+        for (const groqModel of groqModels) {
+          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: groqModel,
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.7,
+            }),
+          });
+          const groqData = await groqRes.json();
+          const text = groqData?.choices?.[0]?.message?.content;
+          if (text && text.trim()) {
+            generatedText = text.trim();
+            break;
+          } else {
+            groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
+          }
+        }
       }
       // <--- YAHAN TAK PASTE HOGA --->
 
