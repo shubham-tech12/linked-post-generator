@@ -153,15 +153,27 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-           } else {
+            } else {
         const cleanKey = apiKey.trim();
-        const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
+        // Multiple models + retry taaki high-demand spike par bhi post zaroor bane
+        const models = [
+          'gemini-3.5-flash-lite',
+          'gemini-3.8-flash',
+          'gemini-3.5-flash-lite',
+          'gemini-3.8-flash',
+        ];
         let success = false;
         let lastError = 'Server busy, please try again';
 
-        for (const modelName of models) {
+        for (let i = 0; i < models.length; i++) {
+          const modelName = models[i];
+          if (i >= 2) {
+            // Agar pehle 2 attempts high demand par hain, toh 1.5s ruk kar retry karein
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000); // Max 8 sec wait per model
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
 
           try {
             const response = await fetch(
@@ -224,13 +236,13 @@ Strict Rules:
             }
           } catch (err: any) {
             clearTimeout(timeoutId);
-            lastError = err.name === 'AbortError' ? 'Model timed out, switched...' : err.message;
+            lastError = err.name === 'AbortError' ? 'Timeout, retrying...' : err.message;
             continue;
           }
         }
 
         if (!success) {
-          alert(`Gemini Error: ${lastError}`);
+          alert(`Gemini servers are currently busy. Please click Generate again in a few seconds.`);
         }
       }
 
