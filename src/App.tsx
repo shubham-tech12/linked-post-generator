@@ -181,10 +181,15 @@ Strict Rules:
 
       // 2. Agar Gemini busy/slow ho, toh 1-second ultra-fast Groq AI se generate karein
         // 2. Agar Gemini busy/slow ho, toh Groq AI se generate karein
+       // 1. Pehle Ultra-Fast Groq AI try karein (0.5 - 1.5 sec response)
       let groqError = '';
-      if (!generatedText && groqKey) {
-        // Groq ke active models fetch karke best chat model auto-select karein
-        let groqModels = ['llama-3.1-8b-instant', 'meta-llama/llama-4-scout-17b-16e-instruct'];
+      if (groqKey) {
+        let groqModels = [
+          'llama-3.1-8b-instant',
+          'meta-llama/llama-4-scout-17b-16e-instruct',
+          'qwen/qwen3-32b',
+          'openai/gpt-oss-20b',
+        ];
         try {
           const listRes = await fetch('https://api.groq.com/openai/v1/models', {
             headers: { Authorization: `Bearer ${groqKey}` },
@@ -192,7 +197,13 @@ Strict Rules:
           const listData = await listRes.json();
           const available = (listData?.data || [])
             .map((m: any) => m.id)
-            .filter((id: string) => !id.includes('whisper') && !id.includes('guard') && !id.includes('tts'));
+            .filter(
+              (id: string) =>
+                !id.includes('whisper') &&
+                !id.includes('guard') &&
+                !id.includes('tts') &&
+                !id.includes('compound')
+            );
           if (available.length > 0) {
             groqModels = available;
           }
@@ -216,12 +227,53 @@ Strict Rules:
           const groqData = await groqRes.json();
           const text = groqData?.choices?.[0]?.message?.content;
           if (text && text.trim()) {
-            generatedText = text.trim();
-            break;
+            // Agar reasoning model (<think>...</think>) ho toh clean karein
+            generatedText = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            if (generatedText) break;
           } else {
             groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
           }
         }
+      }
+
+      // 2. Agar Groq fail ho toh Gemini fallback try karein
+      if (!generatedText && geminiKey) {
+        for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                }),
+              }
+            );
+            clearTimeout(timeoutId);
+            const data = await res.json();
+            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text && text.trim()) {
+              generatedText = text.trim();
+              break;
+            }
+          } catch {
+            clearTimeout(timeoutId);
+          }
+        }
+      }
+
+      if (generatedText) {
+        setGeneratedPost(generatedText);
+      } else {
+        alert(
+          !groqKey
+            ? 'VITE_GROQ_API_KEY missing in Vercel!'
+            : `Generation Failed: ${groqError || 'Please try again'}`
+        );
       }
       // <--- YAHAN TAK PASTE HOGA --->
 
