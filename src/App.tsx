@@ -155,7 +155,7 @@ Strict Rules:
         );
            } else {
         const cleanKey = apiKey.trim();
-        const models = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+        const models = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
         let success = false;
         let lastError = 'Server busy, please try again';
 
