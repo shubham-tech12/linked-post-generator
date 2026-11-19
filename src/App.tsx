@@ -153,96 +153,53 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-            } else {
+             } else {
         const cleanKey = apiKey.trim();
-        // Multiple models + retry taaki high-demand spike par bhi post zaroor bane
         const models = [
           'gemini-3.5-flash-lite',
           'gemini-3.8-flash',
-          'gemini-3.5-flash-lite',
-          'gemini-3.8-flash',
+          'gemma-3-27b-it',
         ];
-        let success = false;
+        let generatedText = '';
         let lastError = 'Server busy, please try again';
 
-        for (let i = 0; i < models.length; i++) {
-          const modelName = models[i];
-          if (i >= 2) {
-            // Agar pehle 2 attempts high demand par hain, toh 1.5s ruk kar retry karein
-            await new Promise((r) => setTimeout(r, 1500));
-          }
-
+        for (const modelName of models) {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          const timeoutId = setTimeout(() => controller.abort(), 7000); // Max 7 sec per model
 
           try {
             const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${cleanKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${cleanKey}`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 signal: controller.signal,
                 body: JSON.stringify({
                   contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: {
-                    thinkingConfig: { thinkingBudget: 0 },
-                  },
                 }),
               }
             );
 
             clearTimeout(timeoutId);
+            const data = await response.json();
+            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-            if (!response.ok || !response.body) {
-              const errData = await response.json().catch(() => ({}));
-              lastError = errData?.error?.message || `Error ${response.status}`;
-              continue;
-            }
-
-            setGeneratedPost('');
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let fullText = '';
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split('\n');
-
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const jsonStr = line.slice(6).trim();
-                  if (!jsonStr || jsonStr === '[DONE]') continue;
-                  try {
-                    const parsed = JSON.parse(jsonStr);
-                    const partText = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-                    if (partText) {
-                      fullText += partText;
-                      setGeneratedPost(fullText);
-                    }
-                  } catch {
-                    // Ignore partial chunk
-                  }
-                }
-              }
-            }
-
-            if (fullText.trim()) {
-              setGeneratedPost(fullText.trim());
-              success = true;
+            if (text && text.trim()) {
+              generatedText = text.trim();
               break;
+            } else {
+              lastError = data?.error?.message || `Status ${response.status}`;
             }
           } catch (err: any) {
             clearTimeout(timeoutId);
-            lastError = err.name === 'AbortError' ? 'Timeout, retrying...' : err.message;
-            continue;
+            lastError = err.name === 'AbortError' ? 'Timeout' : err.message;
           }
         }
 
-        if (!success) {
-          alert(`Gemini servers are currently busy. Please click Generate again in a few seconds.`);
+        if (generatedText) {
+          setGeneratedPost(generatedText);
+        } else {
+          alert(`AI Busy (${lastError}). Please try again in a moment.`);
         }
       }
 
