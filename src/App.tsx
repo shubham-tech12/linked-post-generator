@@ -179,17 +179,41 @@ Strict Rules:
         }
       }
 
-      // 2. Agar Gemini busy/slow ho, toh 1-second ultra-fast Groq AI se generate karein
-        // 2. Agar Gemini busy/slow ho, toh Groq AI se generate karein
-       // 1. Direct Ultra-Fast Groq AI (~1 second response)
+       // 1. Direct Ultra-Fast Groq AI (Smart Cached Active Model - ~1 sec response)
       let groqError = '';
       if (groqKey) {
-        const fastModels = [
-          'llama-3.1-8b-instant',
-          'meta-llama/llama-4-scout-17b-16e-instruct',
-        ];
+        let activeGroqModel = sessionStorage.getItem('groq_active_model') || '';
 
-        for (const groqModel of fastModels) {
+        if (!activeGroqModel) {
+          try {
+            const listRes = await fetch('https://api.groq.com/openai/v1/models', {
+              headers: { Authorization: `Bearer ${groqKey}` },
+            });
+            const listData = await listRes.json();
+            const available: string[] = (listData?.data || [])
+              .map((m: any) => m.id)
+              .filter(
+                (id: string) =>
+                  !id.includes('whisper') &&
+                  !id.includes('guard') &&
+                  !id.includes('tts') &&
+                  !id.includes('compound')
+              );
+
+            // Fast non-reasoning llama/gemma/mistral model ko priority dein
+            const preferred = available.find(
+              (id) =>
+                (id.includes('llama') || id.includes('gemma') || id.includes('mistral')) &&
+                !id.includes('70b') &&
+                !id.includes('reasoning')
+            );
+            activeGroqModel = preferred || available[0] || '';
+          } catch {
+            // Ignore list fetch error
+          }
+        }
+
+        if (activeGroqModel) {
           const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -197,7 +221,7 @@ Strict Rules:
               Authorization: `Bearer ${groqKey}`,
             },
             body: JSON.stringify({
-              model: groqModel,
+              model: activeGroqModel,
               messages: [{ role: 'user', content: prompt }],
               temperature: 0.7,
               max_tokens: 500,
@@ -206,9 +230,10 @@ Strict Rules:
           const groqData = await groqRes.json();
           const text = groqData?.choices?.[0]?.message?.content;
           if (text && text.trim()) {
-            generatedText = text.trim();
-            break;
+            sessionStorage.setItem('groq_active_model', activeGroqModel);
+            generatedText = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
           } else {
+            sessionStorage.removeItem('groq_active_model');
             groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
           }
         }
