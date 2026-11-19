@@ -153,15 +153,15 @@ Strict Rules:
             includeHashtags ? '#LinkedInGrowth #BuildInPublic #Career' : ''
           }`
         );
-         } else {
+          } else {
         const cleanKey = apiKey.trim();
-        const fastModels = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash'];
-        let generatedText = '';
+        const models = ['gemini-3.8-flash', 'gemini-3-flash-preview', 'gemini-2.0-flash'];
+        let success = false;
         let lastError = 'Model busy, please try again';
 
-        for (const modelName of fastModels) {
+        for (const modelName of models) {
           const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${cleanKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${cleanKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -174,20 +174,51 @@ Strict Rules:
             }
           );
 
-          const data = await response.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!response.ok || !response.body) {
+            const errData = await response.json().catch(() => ({}));
+            lastError = errData?.error?.message || lastError;
+            continue;
+          }
 
-          if (text) {
-            generatedText = text.trim();
+          // Stream start hote hi purana text clear karke live typing dikhayein
+          setGeneratedPost('');
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let fullText = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const jsonStr = line.slice(6).trim();
+                if (!jsonStr || jsonStr === '[DONE]') continue;
+                try {
+                  const parsed = JSON.parse(jsonStr);
+                  const partText = parsed?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                  if (partText) {
+                    fullText += partText;
+                    setGeneratedPost(fullText);
+                  }
+                } catch {
+                  // Partial JSON chunk ko ignore karein
+                }
+              }
+            }
+          }
+
+          if (fullText.trim()) {
+            setGeneratedPost(fullText.trim());
+            success = true;
             break;
-          } else {
-            lastError = data?.error?.message || lastError;
           }
         }
 
-        if (generatedText) {
-          setGeneratedPost(generatedText);
-        } else {
+        if (!success) {
           alert(`Gemini Error: ${lastError}`);
         }
       }
