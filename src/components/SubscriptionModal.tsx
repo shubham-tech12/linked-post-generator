@@ -1,5 +1,15 @@
-import React from 'react';
-import { X, Check, Crown, Sparkles, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  X,
+  Check,
+  Crown,
+  Sparkles,
+  Zap,
+  CreditCard,
+  ShieldCheck,
+  Globe,
+  ExternalLink,
+} from 'lucide-react';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -8,6 +18,7 @@ interface SubscriptionModalProps {
   onUpgradeToPro: () => void;
   onDowngradeToFree: () => void;
   remainingFreeUses: number;
+  userEmail?: string;
 }
 
 export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
@@ -17,11 +28,35 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
   onUpgradeToPro,
   onDowngradeToFree,
   remainingFreeUses,
+  userEmail = '',
 }) => {
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
   if (!isOpen) return null;
 
+  const handleStripeCheckout = () => {
+    const stripeLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK?.trim();
+
+    if (!stripeLink) {
+      const demoActivate = window.confirm(
+        'Stripe Payment Link (VITE_STRIPE_PAYMENT_LINK) is not added in Vercel yet.\n\nClick OK to test Instant Pro Activation in Demo Mode, or Cancel to configure Stripe first.'
+      );
+      if (demoActivate) {
+        onUpgradeToPro();
+      }
+      return;
+    }
+
+    setIsRedirecting(true);
+    const url = new URL(stripeLink);
+    if (userEmail) {
+      url.searchParams.set('prefilled_email', userEmail);
+    }
+    window.location.href = url.toString();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       <div className="relative w-full max-w-3xl rounded-2xl bg-[#111827] border border-slate-800 p-6 sm:p-8 shadow-2xl text-slate-100 max-h-[92vh] overflow-y-auto">
         {/* Close Button */}
         <button
@@ -34,8 +69,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
 
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold mb-3">
-            <Crown className="w-3.5 h-3.5" /> Creator Plans
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold mb-3">
+            <Globe className="w-3.5 h-3.5" /> Global Creator Plans
           </div>
           <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-white via-indigo-200 to-purple-300 bg-clip-text text-transparent">
             Upgrade Your LinkedIn Growth
@@ -68,7 +103,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               </div>
 
               <div className="flex items-baseline gap-1 my-4">
-                <span className="text-3xl font-extrabold text-white">₹0</span>
+                <span className="text-3xl font-extrabold text-white">$0</span>
                 <span className="text-xs text-slate-400">/ forever</span>
               </div>
 
@@ -111,9 +146,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
             </div>
           </div>
 
-          {/* Pro Plan Card */}
-          <div className="relative rounded-2xl p-6 bg-gradient-to-b from-indigo-950/50 to-[#0B0F19] border-2 border-amber-500/60 flex flex-col justify-between shadow-lg shadow-amber-500/10">
-            <div className="absolute -top-3 right-5 px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-[11px] font-extrabold uppercase tracking-wider">
+          {/* Pro Plan Card (Stripe Checkout) */}
+          <div className="relative rounded-2xl p-6 bg-gradient-to-b from-indigo-950/60 to-[#0B0F19] border-2 border-indigo-500/70 flex flex-col justify-between shadow-lg shadow-indigo-500/15">
+            <div className="absolute -top-3 right-5 px-3 py-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-[11px] font-extrabold uppercase tracking-wider">
               Most Popular
             </div>
 
@@ -130,8 +165,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               </div>
 
               <div className="flex items-baseline gap-1.5 my-4">
-                <span className="text-3xl font-extrabold text-white">₹199</span>
-                <span className="text-xs text-slate-400">/ month (or $9/mo)</span>
+                <span className="text-3xl font-extrabold text-white">$21</span>
+                <span className="text-xs text-slate-400">/ month • Cancel anytime</span>
               </div>
 
               <ul className="space-y-3 text-sm text-slate-200 mt-5">
@@ -148,17 +183,17 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                   </span>
                 </li>
                 <li className="flex items-center gap-2.5">
-                  <Check className="w-4 h-4 text-amber-400 shrink-0" />
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>One-Click AI Refine (Shorter, Punchier, Stats)</span>
                 </li>
                 <li className="flex items-center gap-2.5">
-                  <Check className="w-4 h-4 text-amber-400 shrink-0" />
+                  <Check className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>Unlimited Cloud Saved Posts Library</span>
                 </li>
               </ul>
             </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-800/80 space-y-2">
+            <div className="mt-6 pt-4 border-t border-slate-800/80 space-y-2.5">
               {isPro ? (
                 <button
                   onClick={onClose}
@@ -169,14 +204,21 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               ) : (
                 <>
                   <button
-                    onClick={onUpgradeToPro}
-                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-sm font-extrabold shadow-lg shadow-amber-500/20 transition cursor-pointer"
+                    onClick={handleStripeCheckout}
+                    disabled={isRedirecting}
+                    className="w-full py-3.5 px-4 rounded-xl bg-[#635BFF] hover:bg-[#5249f5] text-white text-sm font-bold shadow-lg shadow-[#635BFF]/30 flex items-center justify-center gap-2 transition cursor-pointer"
                   >
-                    ⚡ Activate Pro Now (Instant Unlock)
+                    <CreditCard className="w-4 h-4" />
+                    <span>
+                      {isRedirecting ? 'Redirecting to Stripe...' : 'Pay $21/mo with Stripe'}
+                    </span>
+                    <ExternalLink className="w-3.5 h-3.5 opacity-80" />
                   </button>
-                  <p className="text-[11px] text-center text-slate-400">
-                    Instant demo unlock • Ready for Razorpay / Stripe checkout
-                  </p>
+
+                  <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Cards, Apple Pay & Google Pay supported worldwide</span>
+                  </div>
                 </>
               )}
             </div>

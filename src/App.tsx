@@ -72,11 +72,21 @@ export default function App() {
   }, []);
 
   // Load saved posts & user subscription/usage status
-  useEffect(() => {
+   useEffect(() => {
     if (user) {
       fetchSavedPosts();
-      const savedPro = localStorage.getItem(`pro_plan_${user.id}`) === 'true';
-      setIsPro(savedPro);
+
+      // Check if user just returned from successful Stripe Checkout
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('payment') === 'success') {
+        localStorage.setItem(`pro_plan_${user.id}`, 'true');
+        setIsPro(true);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        alert('🎉 Payment Successful! Welcome to Pro Creator Plan.');
+      } else {
+        const savedPro = localStorage.getItem(`pro_plan_${user.id}`) === 'true';
+        setIsPro(savedPro);
+      }
 
       const todayKey = `usage_${user.id}_${new Date().toISOString().slice(0, 10)}`;
       const usedCount = parseInt(localStorage.getItem(todayKey) || '0', 10);
@@ -155,26 +165,25 @@ export default function App() {
             headers: { Authorization: `Bearer ${groqKey}` },
           });
           const listData = await listRes.json();
-          const available: string[] = (listData?.data || [])
+           const available: string[] = (listData?.data || [])
             .map((m: any) => m.id)
             .filter(
               (id: string) =>
+                (id.includes('llama') ||
+                  id.includes('gemma') ||
+                  id.includes('mistral') ||
+                  id.includes('mixtral')) &&
                 !id.includes('whisper') &&
                 !id.includes('guard') &&
                 !id.includes('tts') &&
-                !id.includes('compound') &&
-                !id.includes('qwen') &&
-                !id.includes('gpt-oss') &&
-                !id.includes('deepseek') &&
-                !id.includes('reasoning')
+                !id.includes('orpheus') &&
+                !id.includes('playai') &&
+                !id.includes('vision') &&
+                !id.includes('compound')
             );
 
-          const preferred = available.find(
-            (id) =>
-              (id.includes('llama') || id.includes('gemma') || id.includes('mistral')) &&
-              !id.includes('70b')
-          );
-          activeGroqModel = preferred || available[0] || '';
+          const preferred = available.find((id) => !id.includes('70b'));
+          activeGroqModel = preferred || available[0] || 'llama-3.1-8b-instant';
         } catch {
           // Ignore list fetch error
         }
@@ -474,6 +483,7 @@ ${sourceText}
         onUpgradeToPro={handleUpgradeToPro}
         onDowngradeToFree={handleDowngradeToFree}
         remainingFreeUses={remainingFreeUses}
+        userEmail={user?.email}
       />
 
       {/* Navbar */}
