@@ -148,13 +148,14 @@ export default function App() {
   };
 
   // Shared 1-Second Groq-Primary + Gemini-Fallback AI Helper
+   // Shared 1-Second Groq-Primary + Gemini-Fallback AI Helper
   const callFastAI = async (aiPrompt: string): Promise<string> => {
     const groqKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
 
     let generatedText = '';
     let groqError = '';
-    // 1. PEHLE Ultra-Fast Groq AI (~1 second response, auto-tries all active chat models)
+
     if (groqKey) {
       let candidateModels: string[] = [];
       const cachedModel = sessionStorage.getItem('groq_active_model');
@@ -169,10 +170,6 @@ export default function App() {
           .map((m: any) => m.id)
           .filter(
             (id: string) =>
-              (id.includes('llama') ||
-                id.includes('gemma') ||
-                id.includes('mistral') ||
-                id.includes('mixtral')) &&
               !id.includes('whisper') &&
               !id.includes('guard') &&
               !id.includes('tts') &&
@@ -182,13 +179,21 @@ export default function App() {
               !id.includes('compound')
           );
 
-        const fastModels = available.filter((id) => !id.includes('70b'));
-        const largeModels = available.filter((id) => id.includes('70b'));
-        for (const m of [...fastModels, ...largeModels]) {
+        const preferredOrder = [
+          ...available.filter((id) => (id.includes('llama') || id.includes('gemma')) && !id.includes('70b')),
+          ...available.filter((id) => id.includes('llama') || id.includes('gemma')),
+          ...available,
+        ];
+
+        for (const m of preferredOrder) {
           if (!candidateModels.includes(m)) candidateModels.push(m);
         }
-      } catch {
-        // Ignore list fetch error
+      } catch (e: any) {
+        groqError = e?.message || 'Could not fetch Groq models';
+      }
+
+      if (candidateModels.length === 0) {
+        candidateModels = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile'];
       }
 
       for (const modelId of candidateModels) {
@@ -224,11 +229,11 @@ export default function App() {
       }
     }
 
-    // 2. SIRF agar Groq fail ho toh Gemini fallback chalega
+    // Gemini Fallback (using current supported models)
     if (!generatedText && geminiKey) {
-      for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
+      for (const modelName of ['gemini-2.5-flash', 'gemini-2.0-flash']) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
         try {
           const res = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`,
@@ -257,8 +262,8 @@ export default function App() {
     if (!generatedText) {
       throw new Error(
         !groqKey
-          ? 'VITE_GROQ_API_KEY missing in Vercel Environment Variables!'
-          : groqError || 'AI servers are busy, please try again.'
+          ? 'VITE_GROQ_API_KEY is missing in Vercel Environment Variables!'
+          : groqError || 'All AI models failed. Check Groq/Gemini API keys in Vercel.'
       );
     }
 
