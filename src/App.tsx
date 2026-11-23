@@ -154,64 +154,72 @@ export default function App() {
 
     let generatedText = '';
     let groqError = '';
-
-    // 1. PEHLE Ultra-Fast Groq AI (~1 second response, no reasoning leak)
+    // 1. PEHLE Ultra-Fast Groq AI (~1 second response, auto-tries all active chat models)
     if (groqKey) {
-      let activeGroqModel = sessionStorage.getItem('groq_active_model') || '';
+      let candidateModels: string[] = [];
+      const cachedModel = sessionStorage.getItem('groq_active_model');
+      if (cachedModel) candidateModels.push(cachedModel);
 
-      if (!activeGroqModel) {
-        try {
-          const listRes = await fetch('https://api.groq.com/openai/v1/models', {
-            headers: { Authorization: `Bearer ${groqKey}` },
-          });
-          const listData = await listRes.json();
-           const available: string[] = (listData?.data || [])
-            .map((m: any) => m.id)
-            .filter(
-              (id: string) =>
-                (id.includes('llama') ||
-                  id.includes('gemma') ||
-                  id.includes('mistral') ||
-                  id.includes('mixtral')) &&
-                !id.includes('whisper') &&
-                !id.includes('guard') &&
-                !id.includes('tts') &&
-                !id.includes('orpheus') &&
-                !id.includes('playai') &&
-                !id.includes('vision') &&
-                !id.includes('compound')
-            );
+      try {
+        const listRes = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${groqKey}` },
+        });
+        const listData = await listRes.json();
+        const available: string[] = (listData?.data || [])
+          .map((m: any) => m.id)
+          .filter(
+            (id: string) =>
+              (id.includes('llama') ||
+                id.includes('gemma') ||
+                id.includes('mistral') ||
+                id.includes('mixtral')) &&
+              !id.includes('whisper') &&
+              !id.includes('guard') &&
+              !id.includes('tts') &&
+              !id.includes('orpheus') &&
+              !id.includes('playai') &&
+              !id.includes('vision') &&
+              !id.includes('compound')
+          );
 
-          const preferred = available.find((id) => !id.includes('70b'));
-          activeGroqModel = preferred || available[0] || 'llama-3.1-8b-instant';
-        } catch {
-          // Ignore list fetch error
+        const fastModels = available.filter((id) => !id.includes('70b'));
+        const largeModels = available.filter((id) => id.includes('70b'));
+        for (const m of [...fastModels, ...largeModels]) {
+          if (!candidateModels.includes(m)) candidateModels.push(m);
         }
+      } catch {
+        // Ignore list fetch error
       }
 
-      if (activeGroqModel) {
-        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${groqKey}`,
-          },
-          body: JSON.stringify({
-            model: activeGroqModel,
-            messages: [{ role: 'user', content: aiPrompt }],
-            temperature: 0.7,
-            max_tokens: 1024,
-          }),
-        });
-        const groqData = await groqRes.json();
-        const rawText = groqData?.choices?.[0]?.message?.content || '';
-        const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        if (text) {
-          sessionStorage.setItem('groq_active_model', activeGroqModel);
-          generatedText = text;
-        } else {
+      for (const modelId of candidateModels) {
+        try {
+          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${groqKey}`,
+            },
+            body: JSON.stringify({
+              model: modelId,
+              messages: [{ role: 'user', content: aiPrompt }],
+              temperature: 0.7,
+              max_tokens: 1024,
+            }),
+          });
+          const groqData = await groqRes.json();
+          const rawText = groqData?.choices?.[0]?.message?.content || '';
+          const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          if (text) {
+            sessionStorage.setItem('groq_active_model', modelId);
+            generatedText = text;
+            break;
+          } else {
+            sessionStorage.removeItem('groq_active_model');
+            groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
+          }
+        } catch (e: any) {
           sessionStorage.removeItem('groq_active_model');
-          groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
+          groqError = e?.message || 'Groq network error';
         }
       }
     }
