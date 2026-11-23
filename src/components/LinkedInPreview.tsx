@@ -12,7 +12,7 @@ interface LinkedInPreviewProps {
 export const LinkedInPreview: React.FC<LinkedInPreviewProps> = ({
   text,
   setText,
-  userName = "Aapka Naam",
+  userName = "Your Name",
   userTitle = "LinkedIn Content Creator | Software Engineer"
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -79,7 +79,7 @@ export const LinkedInPreview: React.FC<LinkedInPreviewProps> = ({
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="w-full h-72 p-4 bg-slate-950 text-slate-200 border border-t-0 border-slate-800 rounded-b-xl focus:outline-none focus:border-blue-500 transition resize-none text-sm leading-relaxed"
-          placeholder="Yahan aapka generated content dikhega..."
+          placeholder="Your generated LinkedIn post will appear here..."
         />
         <div className="text-right text-[11px] text-slate-500 font-medium">
           Character Count: {text.length}
