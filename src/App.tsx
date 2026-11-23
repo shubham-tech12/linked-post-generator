@@ -155,6 +155,13 @@ export default function App() {
 
     let generatedText = '';
     let groqError = '';
+    const cleanOutput = (str: string) =>
+  str
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/^```[\w]*\n?/gm, '')
+    .replace(/```$/gm, '')
+    .replace(/\*\*/g, '')
+    .trim();
 
     if (groqKey) {
       let candidateModels: string[] = [];
@@ -213,7 +220,7 @@ export default function App() {
           });
           const groqData = await groqRes.json();
           const rawText = groqData?.choices?.[0]?.message?.content || '';
-          const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+           const text = cleanOutput(rawText);
           if (text) {
             sessionStorage.setItem('groq_active_model', modelId);
             generatedText = text;
@@ -250,7 +257,7 @@ export default function App() {
           const data = await res.json();
           const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (text && text.trim()) {
-            generatedText = text.trim();
+             generatedText = cleanOutput(text);
             break;
           }
         } catch {
