@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Copy, Check, Bookmark, Trash2, LogOut, RefreshCw } from 'lucide-react';
+import {
+  Sparkles,
+  Copy,
+  Check,
+  Bookmark,
+  Trash2,
+  LogOut,
+  RefreshCw,
+  Send,
+  Wand2,
+  Zap,
+} from 'lucide-react';
 import { supabase } from './supabase';
 import { AuthPage } from './components/AuthPage';
 import { LinkedInPreview } from './components/LinkedInPreview';
@@ -24,7 +35,13 @@ export default function App() {
 
   const [generatedPost, setGeneratedPost] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
+  const [activeRefineAction, setActiveRefineAction] = useState('');
   const [copied, setCopied] = useState(false);
+
+  // 3 Viral Hook Variations state
+  const [hooks, setHooks] = useState<string[]>([]);
+  const [isGeneratingHooks, setIsGeneratingHooks] = useState(false);
 
   const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -70,6 +87,118 @@ export default function App() {
     await supabase.auth.signOut();
   };
 
+  // Shared 1-Second Groq-Primary + Gemini-Fallback AI Helper
+  const callFastAI = async (aiPrompt: string): Promise<string> => {
+    const groqKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+
+    let generatedText = '';
+    let groqError = '';
+
+    // 1. PEHLE Ultra-Fast Groq AI (~1 second response, no reasoning leak)
+    if (groqKey) {
+      let activeGroqModel = sessionStorage.getItem('groq_active_model') || '';
+
+      if (!activeGroqModel) {
+        try {
+          const listRes = await fetch('https://api.groq.com/openai/v1/models', {
+            headers: { Authorization: `Bearer ${groqKey}` },
+          });
+          const listData = await listRes.json();
+          const available: string[] = (listData?.data || [])
+            .map((m: any) => m.id)
+            .filter(
+              (id: string) =>
+                !id.includes('whisper') &&
+                !id.includes('guard') &&
+                !id.includes('tts') &&
+                !id.includes('compound') &&
+                !id.includes('qwen') &&
+                !id.includes('gpt-oss') &&
+                !id.includes('deepseek') &&
+                !id.includes('reasoning')
+            );
+
+          const preferred = available.find(
+            (id) =>
+              (id.includes('llama') || id.includes('gemma') || id.includes('mistral')) &&
+              !id.includes('70b')
+          );
+          activeGroqModel = preferred || available[0] || '';
+        } catch {
+          // Ignore list fetch error
+        }
+      }
+
+      if (activeGroqModel) {
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: activeGroqModel,
+            messages: [{ role: 'user', content: aiPrompt }],
+            temperature: 0.7,
+            max_tokens: 1024,
+          }),
+        });
+        const groqData = await groqRes.json();
+        const rawText = groqData?.choices?.[0]?.message?.content || '';
+        const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        if (text) {
+          sessionStorage.setItem('groq_active_model', activeGroqModel);
+          generatedText = text;
+        } else {
+          sessionStorage.removeItem('groq_active_model');
+          groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
+        }
+      }
+    }
+
+    // 2. SIRF agar Groq fail ho toh Gemini fallback chalega
+    if (!generatedText && geminiKey) {
+      for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal,
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: aiPrompt }] }],
+              }),
+            }
+          );
+          clearTimeout(timeoutId);
+          const data = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && text.trim()) {
+            generatedText = text.trim();
+            break;
+          }
+        } catch {
+          clearTimeout(timeoutId);
+        }
+      }
+    }
+
+    if (!generatedText) {
+      throw new Error(
+        !groqKey
+          ? 'VITE_GROQ_API_KEY missing in Vercel Environment Variables!'
+          : groqError || 'AI servers are busy, please try again.'
+      );
+    }
+
+    return generatedText;
+  };
+
+  // Main Post Generator
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topic.trim()) {
@@ -80,9 +209,7 @@ export default function App() {
     setIsGenerating(true);
     setCopied(false);
     setSaveSuccess(false);
-
-    const groqKey = import.meta.env.VITE_GROQ_API_KEY?.trim();
-    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+    setHooks([]);
 
     const prompt = `You are an expert LinkedIn Ghostwriter and Personal Branding Strategist.
 Turn the user's raw idea into a high-engagement, scroll-stopping LinkedIn post.
@@ -101,123 +228,133 @@ Strict Rules:
 5. Return ONLY the post text ready to copy-paste. Do NOT use markdown stars (** or *) because LinkedIn does not render markdown.`;
 
     try {
-      let generatedText = '';
-      let groqError = '';
-     
-      // 1. PEHLE Ultra-Fast Groq AI chalega (~1 second response, no thinking leak)
-      if (groqKey) {
-        let activeGroqModel = sessionStorage.getItem('groq_active_model') || '';
-
-        if (!activeGroqModel) {
-          try {
-            const listRes = await fetch('https://api.groq.com/openai/v1/models', {
-              headers: { Authorization: `Bearer ${groqKey}` },
-            });
-            const listData = await listRes.json();
-            const available: string[] = (listData?.data || [])
-              .map((m: any) => m.id)
-              .filter(
-                (id: string) =>
-                  !id.includes('whisper') &&
-                  !id.includes('guard') &&
-                  !id.includes('tts') &&
-                  !id.includes('compound') &&
-                  !id.includes('qwen') &&
-                  !id.includes('gpt-oss') &&
-                  !id.includes('deepseek') &&
-                  !id.includes('reasoning')
-              );
-
-            const preferred = available.find(
-              (id) =>
-                (id.includes('llama') || id.includes('gemma') || id.includes('mistral')) &&
-                !id.includes('70b')
-            );
-            activeGroqModel = preferred || available[0] || '';
-          } catch {
-            // Ignore list fetch error
-          }
-        }
-
-        if (activeGroqModel) {
-          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${groqKey}`,
-            },
-            body: JSON.stringify({
-              model: activeGroqModel,
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.7,
-              max_tokens: 1024,
-            }),
-          });
-          const groqData = await groqRes.json();
-          const rawText = groqData?.choices?.[0]?.message?.content || '';
-          const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-          if (text) {
-            sessionStorage.setItem('groq_active_model', activeGroqModel);
-            generatedText = text;
-          } else {
-            sessionStorage.removeItem('groq_active_model');
-            groqError = groqData?.error?.message || `Groq Status ${groqRes.status}`;
-          }
-        }
-      }
-
-      // 2. SIRF agar Groq fail ho toh Gemini fallback chalega
-      if (!generatedText && geminiKey) {
-        for (const modelName of ['gemini-3.5-flash-lite', 'gemini-3.8-flash']) {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: controller.signal,
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                }),
-              }
-            );
-            clearTimeout(timeoutId);
-            const data = await res.json();
-            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text && text.trim()) {
-              generatedText = text.trim();
-              break;
-            }
-          } catch {
-            clearTimeout(timeoutId);
-          }
-        }
-      }
-
-      if (generatedText) {
-        setGeneratedPost(generatedText);
-      } else {
-        alert(
-          !groqKey
-            ? 'VITE_GROQ_API_KEY missing in Vercel Environment Variables!'
-            : `Generation Failed: ${groqError || 'AI servers are busy, please try again.'}`
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Network error while generating post.');
+      const result = await callFastAI(prompt);
+      setGeneratedPost(result);
+    } catch (err: any) {
+      alert('Generation Failed: ' + (err?.message || 'Please try again.'));
     } finally {
       setIsGenerating(false);
     }
   };
 
+  // Feature 2: One-Click Rewrite Toolbar (Shorter / Punchier / Add Stats / Fix Grammar)
+  const handleRefinePost = async (action: 'Shorter' | 'Punchier' | 'Add Stats' | 'Fix Grammar') => {
+    if (!generatedPost.trim() || isRefining) return;
+
+    setIsRefining(true);
+    setActiveRefineAction(action);
+
+    const instructionsMap: Record<typeof action, string> = {
+      Shorter:
+        'Condense this LinkedIn post to around 70-90 words while keeping the hook, core value, and final CTA question strong.',
+      Punchier:
+        'Rewrite this LinkedIn post to be much bolder, sharper, and higher-impact with crisp 1-line sentences and stronger emotional punch.',
+      'Add Stats':
+        'Enhance this LinkedIn post by weaving in 1-2 realistic, relevant industry insights, percentages, or concrete numbers to boost credibility.',
+      'Fix Grammar':
+        'Polish the grammar, flow, and readability of this LinkedIn post so it reads like a native top LinkedIn creator wrote it, without changing the message.',
+    };
+
+    const refinePrompt = `You are an expert LinkedIn Editor.
+Task: ${instructionsMap[action]}
+
+Rules:
+- Keep clean spacing with blank lines between short paragraphs.
+- Do NOT use markdown stars (** or *).
+- Return ONLY the updated LinkedIn post text, nothing else.
+
+Original Post:
+"""
+${generatedPost}
+"""`;
+
+    try {
+      const refined = await callFastAI(refinePrompt);
+      setGeneratedPost(refined);
+    } catch (err: any) {
+      alert('Refine Failed: ' + (err?.message || 'Please try again.'));
+    } finally {
+      setIsRefining(false);
+      setActiveRefineAction('');
+    }
+  };
+
+  // Feature 3: 3 Viral Hook Variations Generator & One-Click Apply
+  const handleGenerateHooks = async () => {
+    const sourceText = topic.trim() || generatedPost.trim();
+    if (!sourceText) {
+      alert('Enter a topic or generate a post first to create viral hooks!');
+      return;
+    }
+
+    setIsGeneratingHooks(true);
+    const hookPrompt = `You are a viral LinkedIn Hook Copywriter.
+Based on the topic/post below, write 3 distinct, scroll-stopping opening hooks (each 1-2 short lines, max 18 words):
+1. Question Hook (sparks curiosity or self-reflection)
+2. Bold Claim / Contrarian Hook (challenges common belief)
+3. Story / Personal Lesson Hook (creates instant emotional pull)
+
+Strict Rules:
+- Return ONLY the 3 hooks separated by "|||" (three pipe characters).
+- No numbering, no labels like "Question Hook:", no markdown (** or *).
+
+Topic / Post:
+"""
+${sourceText}
+"""`;
+
+    try {
+      const rawHooks = await callFastAI(hookPrompt);
+      const parsedHooks = rawHooks
+        .split('|||')
+        .map((h) => h.replace(/^\d+[\.\)]\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 3);
+
+      if (parsedHooks.length > 0) {
+        setHooks(parsedHooks);
+      } else {
+        alert('Could not parse hooks, please click Viral Hooks again.');
+      }
+    } catch (err: any) {
+      alert('Hook Generation Failed: ' + (err?.message || 'Please try again.'));
+    } finally {
+      setIsGeneratingHooks(false);
+    }
+  };
+
+  const handleApplyHook = (selectedHook: string) => {
+    if (!generatedPost.trim()) {
+      setGeneratedPost(selectedHook);
+      return;
+    }
+    const paragraphs = generatedPost.split(/\n\s*\n/);
+    if (paragraphs.length > 1) {
+      paragraphs[0] = selectedHook;
+      setGeneratedPost(paragraphs.join('\n\n'));
+    } else {
+      setGeneratedPost(`${selectedHook}\n\n${generatedPost}`);
+    }
+  };
+
+  // Copy & Feature 1: Direct "Post to LinkedIn" Share Button
   const handleCopy = () => {
     if (!generatedPost) return;
     navigator.clipboard.writeText(generatedPost);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePostToLinkedIn = () => {
+    if (!generatedPost.trim()) return;
+    navigator.clipboard.writeText(generatedPost);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+    window.open(
+      'https://www.linkedin.com/feed/?shareActive=true',
+      '_blank',
+      'noopener,noreferrer'
+    );
   };
 
   const handleSavePost = async () => {
@@ -301,7 +438,7 @@ Strict Rules:
 
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-sm font-medium transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-sm font-medium transition cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
               <span>Logout</span>
@@ -313,153 +450,222 @@ Strict Rules:
       {/* Main Content */}
       <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Input Form */}
-          <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <span>✍️</span> Create Your Post
-              </h2>
-              {topic && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTopic('');
-                    setGeneratedPost('');
-                  }}
-                  className="text-xs text-slate-400 hover:text-slate-200 transition"
-                >
-                  Clear
-                </button>
+          {/* Left Column: Input Form & Viral Hooks */}
+          <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <span>✍️</span> Create Your Post
+                </h2>
+                {topic && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTopic('');
+                      setGeneratedPost('');
+                      setHooks([]);
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Quick Idea Chips */}
+              <div className="mb-4">
+                <p className="text-xs text-slate-400 mb-2">Try a quick idea:</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTopic(
+                        'Just launched my new full-stack web app after weeks of late-night coding!'
+                      )
+                    }
+                    className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                  >
+                    🚀 Project Launch
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTopic(
+                        '3 lessons I learned while preparing for tech interviews as a developer'
+                      )
+                    }
+                    className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                  >
+                    💼 Job / Career Tip
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTopic(
+                        'Why building projects in public helped me grow faster than just watching tutorials'
+                      )
+                    }
+                    className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                  >
+                    🔥 Coding Journey
+                  </button>
+                </div>
+              </div>
+
+              <form onSubmit={handleGenerate} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                    Post Topic or Rough Idea
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="Write your raw thought, project update, or lesson learned..."
+                    className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition resize-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Tone
+                    </label>
+                    <select
+                      value={tone}
+                      onChange={(e) => setTone(e.target.value)}
+                      className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="Storytelling">📖 Storytelling</option>
+                      <option value="Professional & Insightful">
+                        💼 Professional & Insightful
+                      </option>
+                      <option value="Bold & Contrarian">🔥 Bold & Contrarian</option>
+                      <option value="Educational / How-To">💡 Educational / How-To</option>
+                      <option value="Casual & Authentic">😊 Casual & Authentic</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1.5">
+                      Length
+                    </label>
+                    <select
+                      value={length}
+                      onChange={(e) => setLength(e.target.value)}
+                      className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="Short (~80 words)">Short (~80 words)</option>
+                      <option value="Medium (~150 words)">Medium (~150 words)</option>
+                      <option value="Long (~250 words)">Long (~250 words)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-6 pt-1">
+                  <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeEmojis}
+                      onChange={(e) => setIncludeEmojis(e.target.checked)}
+                      className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+                    />
+                    Include Emojis
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeHashtags}
+                      onChange={(e) => setIncludeHashtags(e.target.checked)}
+                      className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
+                    />
+                    Include Hashtags
+                  </label>
+                </div>
+
+                {/* Primary Generate + Viral Hooks Buttons */}
+                <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                  <button
+                    type="submit"
+                    disabled={isGenerating}
+                    className="flex-1 py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-60 font-semibold text-white shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition cursor-pointer"
+                  >
+                    <Sparkles className={`w-5 h-5 ${isGenerating ? 'animate-spin' : ''}`} />
+                    <span>{isGenerating ? 'Writing your post...' : '⚡ Generate Post'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleGenerateHooks}
+                    disabled={isGeneratingHooks}
+                    className="py-3.5 px-4 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 disabled:opacity-60 font-semibold text-sm flex items-center justify-center gap-2 transition cursor-pointer"
+                    title="Generate 3 scroll-stopping opening hooks"
+                  >
+                    <Zap className={`w-4 h-4 ${isGeneratingHooks ? 'animate-spin' : ''}`} />
+                    <span>{isGeneratingHooks ? 'Creating Hooks...' : '3 Viral Hooks'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* 3 Viral Hook Variations Box */}
+              {hooks.length > 0 && (
+                <div className="mt-5 p-4 rounded-xl bg-[#0B0F19] border border-amber-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5" /> Click a Hook to Apply on Top
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setHooks([])}
+                      className="text-[11px] text-slate-500 hover:text-slate-300"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {hooks.map((hookText, idx) => {
+                      const labels = ['❓ Question Hook', '🔥 Bold Claim', '📖 Story Hook'];
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleApplyHook(hookText)}
+                          className="w-full text-left p-3 rounded-lg bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/40 transition group cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-semibold text-amber-400/90">
+                              {labels[idx] || `Hook #${idx + 1}`}
+                            </span>
+                            <span className="text-[10px] text-indigo-400 opacity-0 group-hover:opacity-100 transition">
+                              Use this hook →
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-200 whitespace-pre-line leading-relaxed">
+                            {hookText}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
-
-            {/* Quick Idea Chips */}
-            <div className="mb-4">
-              <p className="text-xs text-slate-400 mb-2">Try a quick idea:</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTopic('Just launched my new full-stack web app after weeks of late-night coding!')
-                  }
-                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                >
-                  🚀 Project Launch
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTopic('3 lessons I learned while preparing for tech interviews as a developer')
-                  }
-                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                >
-                  💼 Job / Career Tip
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setTopic('Why building projects in public helped me grow faster than just watching tutorials')
-                  }
-                  className="text-xs px-3 py-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition"
-                >
-                  🔥 Coding Journey
-                </button>
-              </div>
-            </div>
-
-            <form onSubmit={handleGenerate} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                  Post Topic or Rough Idea
-                </label>
-                <textarea
-                  rows={4}
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  placeholder="Write your raw thought, project update, or lesson learned..."
-                  className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                    Tone
-                  </label>
-                  <select
-                    value={tone}
-                    onChange={(e) => setTone(e.target.value)}
-                    className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="Storytelling">📖 Storytelling</option>
-                    <option value="Professional & Insightful">💼 Professional & Insightful</option>
-                    <option value="Bold & Contrarian">🔥 Bold & Contrarian</option>
-                    <option value="Educational / How-To">💡 Educational / How-To</option>
-                    <option value="Casual & Authentic">😊 Casual & Authentic</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1.5">
-                    Length
-                  </label>
-                  <select
-                    value={length}
-                    onChange={(e) => setLength(e.target.value)}
-                    className="w-full rounded-xl bg-[#0B0F19] border border-slate-700/80 px-3 py-2.5 text-slate-100 focus:outline-none focus:border-indigo-500"
-                  >
-                    <option value="Short (~80 words)">Short (~80 words)</option>
-                    <option value="Medium (~150 words)">Medium (~150 words)</option>
-                    <option value="Long (~250 words)">Long (~250 words)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-6 pt-1">
-                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeEmojis}
-                    onChange={(e) => setIncludeEmojis(e.target.checked)}
-                    className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
-                  />
-                  Include Emojis
-                </label>
-
-                <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={includeHashtags}
-                    onChange={(e) => setIncludeHashtags(e.target.checked)}
-                    className="rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
-                  />
-                  Include Hashtags
-                </label>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isGenerating}
-                className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-60 font-semibold text-white shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition cursor-pointer"
-              >
-                <Sparkles className={`w-5 h-5 ${isGenerating ? 'animate-spin' : ''}`} />
-                <span>{isGenerating ? 'Writing your post...' : '⚡ Generate Post'}</span>
-              </button>
-            </form>
           </div>
 
-          {/* Right Column: Live LinkedIn Preview */}
+          {/* Right Column: Live LinkedIn Preview, Rewrite Toolbar & Direct Share */}
           <div className="bg-[#111827] border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <span>👀</span> Live LinkedIn Preview
               </h2>
 
               {generatedPost && (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     onClick={handleCopy}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition cursor-pointer"
                   >
                     {copied ? (
                       <>
@@ -477,17 +683,46 @@ Strict Rules:
                   <button
                     onClick={handleSavePost}
                     disabled={isSaving}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-xs font-medium text-indigo-300 border border-indigo-500/40 transition"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-xs font-medium text-indigo-300 border border-indigo-500/40 transition cursor-pointer"
                   >
                     <Bookmark className="w-3.5 h-3.5" />
                     <span>{saveSuccess ? 'Saved!' : isSaving ? 'Saving...' : 'Save'}</span>
+                  </button>
+
+                  <button
+                    onClick={handlePostToLinkedIn}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0A66C2] hover:bg-[#004182] text-xs font-semibold text-white shadow-sm transition cursor-pointer"
+                    title="Copies post to clipboard & opens LinkedIn composer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Post to LinkedIn</span>
                   </button>
                 </div>
               )}
             </div>
 
+            {/* One-Click AI Rewrite Toolbar */}
+            {generatedPost && (
+              <div className="mb-4 p-2.5 rounded-xl bg-[#0B0F19] border border-slate-800 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1 mr-1">
+                  <Wand2 className="w-3.5 h-3.5 text-indigo-400" /> AI Refine:
+                </span>
+                {(['Shorter', 'Punchier', 'Add Stats', 'Fix Grammar'] as const).map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    disabled={isRefining}
+                    onClick={() => handleRefinePost(action)}
+                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-indigo-600/30 text-slate-200 hover:text-indigo-200 border border-slate-700 hover:border-indigo-500/40 disabled:opacity-50 transition cursor-pointer"
+                  >
+                    {isRefining && activeRefineAction === action ? 'Refining...' : action}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex-1">
-               <LinkedInPreview
+              <LinkedInPreview
                 text={generatedPost}
                 setText={setGeneratedPost}
                 userName={userName}
@@ -520,7 +755,7 @@ Strict Rules:
                       </span>
                       <button
                         onClick={() => handleDeletePost(post.id)}
-                        className="text-slate-500 hover:text-red-400 transition"
+                        className="text-slate-500 hover:text-red-400 transition cursor-pointer"
                         title="Delete post"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -533,7 +768,7 @@ Strict Rules:
 
                   <button
                     onClick={() => setGeneratedPost(post.content)}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium self-start transition"
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-medium self-start transition cursor-pointer"
                   >
                     Load into Preview →
                   </button>
