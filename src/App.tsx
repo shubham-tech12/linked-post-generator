@@ -103,8 +103,8 @@ Strict Rules:
     try {
       let generatedText = '';
       let groqError = '';
-
-      // 1. PEHLE Ultra-Fast Groq AI chalega (~1 second response)
+     
+      // 1. PEHLE Ultra-Fast Groq AI chalega (~1 second response, no thinking leak)
       if (groqKey) {
         let activeGroqModel = sessionStorage.getItem('groq_active_model') || '';
 
@@ -121,14 +121,17 @@ Strict Rules:
                   !id.includes('whisper') &&
                   !id.includes('guard') &&
                   !id.includes('tts') &&
-                  !id.includes('compound')
+                  !id.includes('compound') &&
+                  !id.includes('qwen') &&
+                  !id.includes('gpt-oss') &&
+                  !id.includes('deepseek') &&
+                  !id.includes('reasoning')
               );
 
             const preferred = available.find(
               (id) =>
                 (id.includes('llama') || id.includes('gemma') || id.includes('mistral')) &&
-                !id.includes('70b') &&
-                !id.includes('reasoning')
+                !id.includes('70b')
             );
             activeGroqModel = preferred || available[0] || '';
           } catch {
@@ -143,18 +146,15 @@ Strict Rules:
               'Content-Type': 'application/json',
               Authorization: `Bearer ${groqKey}`,
             },
-             body: JSON.stringify({
+            body: JSON.stringify({
               model: activeGroqModel,
               messages: [{ role: 'user', content: prompt }],
               temperature: 0.7,
-              max_tokens: 2048,
+              max_tokens: 1024,
             }),
           });
-           const groqData = await groqRes.json();
-          const rawText =
-            groqData?.choices?.[0]?.message?.content ||
-            groqData?.choices?.[0]?.message?.reasoning ||
-            '';
+          const groqData = await groqRes.json();
+          const rawText = groqData?.choices?.[0]?.message?.content || '';
           const text = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
           if (text) {
             sessionStorage.setItem('groq_active_model', activeGroqModel);
