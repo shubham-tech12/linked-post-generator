@@ -10,10 +10,12 @@ import {
   Send,
   Wand2,
   Zap,
+  Crown,
 } from 'lucide-react';
 import { supabase } from './supabase';
 import { AuthPage } from './components/AuthPage';
 import { LinkedInPreview } from './components/LinkedInPreview';
+import { SubscriptionModal } from './components/SubscriptionModal';
 
 interface SavedPost {
   id: string;
@@ -22,6 +24,8 @@ interface SavedPost {
   content: string;
   created_at: string;
 }
+
+const DAILY_FREE_LIMIT = 3;
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -47,6 +51,11 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // Subscription & Daily Usage State
+  const [isPro, setIsPro] = useState(false);
+  const [dailyUsed, setDailyUsed] = useState(0);
+  const [isSubModalOpen, setIsSubModalOpen] = useState(false);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -62,13 +71,54 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Load saved posts & user subscription/usage status
   useEffect(() => {
     if (user) {
       fetchSavedPosts();
+      const savedPro = localStorage.getItem(`pro_plan_${user.id}`) === 'true';
+      setIsPro(savedPro);
+
+      const todayKey = `usage_${user.id}_${new Date().toISOString().slice(0, 10)}`;
+      const usedCount = parseInt(localStorage.getItem(todayKey) || '0', 10);
+      setDailyUsed(isNaN(usedCount) ? 0 : usedCount);
     } else {
       setSavedPosts([]);
+      setIsPro(false);
+      setDailyUsed(0);
     }
   }, [user]);
+
+  const remainingFreeUses = Math.max(0, DAILY_FREE_LIMIT - dailyUsed);
+
+  const checkAndIncrementUsage = (): boolean => {
+    if (isPro) return true;
+    if (dailyUsed >= DAILY_FREE_LIMIT) {
+      setIsSubModalOpen(true);
+      return false;
+    }
+    const nextCount = dailyUsed + 1;
+    setDailyUsed(nextCount);
+    if (user) {
+      const todayKey = `usage_${user.id}_${new Date().toISOString().slice(0, 10)}`;
+      localStorage.setItem(todayKey, String(nextCount));
+    }
+    return true;
+  };
+
+  const handleUpgradeToPro = () => {
+    setIsPro(true);
+    if (user) {
+      localStorage.setItem(`pro_plan_${user.id}`, 'true');
+    }
+    setIsSubModalOpen(false);
+  };
+
+  const handleDowngradeToFree = () => {
+    setIsPro(false);
+    if (user) {
+      localStorage.removeItem(`pro_plan_${user.id}`);
+    }
+  };
 
   const fetchSavedPosts = async () => {
     if (!user) return;
@@ -206,6 +256,8 @@ export default function App() {
       return;
     }
 
+    if (!checkAndIncrementUsage()) return;
+
     setIsGenerating(true);
     setCopied(false);
     setSaveSuccess(false);
@@ -237,9 +289,10 @@ Strict Rules:
     }
   };
 
-  // Feature 2: One-Click Rewrite Toolbar (Shorter / Punchier / Add Stats / Fix Grammar)
+  // One-Click Rewrite Toolbar (Shorter / Punchier / Add Stats / Fix Grammar)
   const handleRefinePost = async (action: 'Shorter' | 'Punchier' | 'Add Stats' | 'Fix Grammar') => {
     if (!generatedPost.trim() || isRefining) return;
+    if (!checkAndIncrementUsage()) return;
 
     setIsRefining(true);
     setActiveRefineAction(action);
@@ -279,13 +332,15 @@ ${generatedPost}
     }
   };
 
-  // Feature 3: 3 Viral Hook Variations Generator & One-Click Apply
+  // 3 Viral Hook Variations Generator & One-Click Apply
   const handleGenerateHooks = async () => {
     const sourceText = topic.trim() || generatedPost.trim();
     if (!sourceText) {
       alert('Enter a topic or generate a post first to create viral hooks!');
       return;
     }
+
+    if (!checkAndIncrementUsage()) return;
 
     setIsGeneratingHooks(true);
     const hookPrompt = `You are a viral LinkedIn Hook Copywriter.
@@ -337,7 +392,6 @@ ${sourceText}
     }
   };
 
-  // Copy & Feature 1: Direct "Post to LinkedIn" Share Button
   const handleCopy = () => {
     if (!generatedPost) return;
     navigator.clipboard.writeText(generatedPost);
@@ -359,8 +413,12 @@ ${sourceText}
 
   const handleSavePost = async () => {
     if (!generatedPost.trim() || !user) return;
-    setIsSaving(true);
+    if (!isPro && savedPosts.length >= 5) {
+      setIsSubModalOpen(true);
+      return;
+    }
 
+    setIsSaving(true);
     const { error } = await supabase.from('posts').insert([
       {
         user_id: user.id,
@@ -408,9 +466,19 @@ ${sourceText}
 
   return (
     <div className="min-h-screen bg-[#0B0F19] text-slate-100">
+      {/* Subscription Pricing Modal */}
+      <SubscriptionModal
+        isOpen={isSubModalOpen}
+        onClose={() => setIsSubModalOpen(false)}
+        isPro={isPro}
+        onUpgradeToPro={handleUpgradeToPro}
+        onDowngradeToFree={handleDowngradeToFree}
+        remainingFreeUses={remainingFreeUses}
+      />
+
       {/* Navbar */}
       <header className="border-b border-slate-800/80 bg-[#0F1629]/90 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-3.5 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="text-2xl">🚀</span>
             <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
@@ -418,7 +486,26 @@ ${sourceText}
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* Subscription Badge / Upgrade Button */}
+            {isPro ? (
+              <button
+                onClick={() => setIsSubModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold transition cursor-pointer"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                <span>PRO PLAN</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsSubModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 text-xs font-extrabold shadow-sm transition cursor-pointer"
+              >
+                <Crown className="w-3.5 h-3.5" />
+                <span>Upgrade ({remainingFreeUses}/3 Left)</span>
+              </button>
+            )}
+
             <div className="flex items-center gap-2 bg-slate-800/70 px-3 py-1.5 rounded-full border border-slate-700/60">
               {userAvatar ? (
                 <img
@@ -441,7 +528,7 @@ ${sourceText}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-sm font-medium transition cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
-              <span>Logout</span>
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
