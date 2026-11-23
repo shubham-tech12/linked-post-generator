@@ -1,23 +1,43 @@
 import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../supabase';
 import { Sparkles, Linkedin, Mail, Loader2 } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
-  const { signInWithEmail, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [isSending, setIsSending] = useState(false);
+
+  const handleGoogleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    if (error) {
+      alert('Google Login Error: ' + error.message);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim();
     if (!cleanEmail) return;
-    
+
     try {
       setIsSending(true);
-      // सीधे AuthContext के फंक्शन को कॉल कर रहे हैं
-      await signInWithEmail(cleanEmail);
-    } catch (error) {
-      console.error("Form Submit Error:", error);
+      const { error } = await supabase.auth.signInWithOtp({
+        email: cleanEmail,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (error) {
+        alert('Magic Link Error: ' + error.message);
+      } else {
+        alert('Check your email for the login link!');
+      }
+    } catch (error: any) {
+      alert('Login Failed: ' + (error?.message || 'Unknown error'));
     } finally {
       setIsSending(false);
     }
@@ -29,7 +49,7 @@ export const AuthPage: React.FC = () => {
         <div className="inline-flex p-3 bg-blue-600/10 rounded-xl text-blue-500 mb-4 border border-blue-500/20">
           <Sparkles className="w-8 h-8 animate-pulse" />
         </div>
-        
+
         <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2 flex items-center justify-center gap-2">
           LinkedIn <span className="text-blue-500">Post AI</span>
         </h1>
@@ -39,8 +59,9 @@ export const AuthPage: React.FC = () => {
 
         {/* Google Login Button */}
         <button
-          onClick={signInWithGoogle}
-          className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center gap-3 shadow-lg mb-6"
+          type="button"
+          onClick={handleGoogleLogin}
+          className="w-full bg-white hover:bg-slate-100 text-slate-900 font-semibold py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center gap-3 shadow-lg mb-6 cursor-pointer"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path
@@ -65,7 +86,9 @@ export const AuthPage: React.FC = () => {
 
         <div className="relative flex py-2 items-center mb-6">
           <div className="flex-grow border-t border-slate-700"></div>
-          <span className="flex-shrink mx-4 text-slate-500 text-xs uppercase tracking-wider">Or continue with</span>
+          <span className="flex-shrink mx-4 text-slate-500 text-xs uppercase tracking-wider">
+            Or continue with
+          </span>
           <div className="flex-grow border-t border-slate-700"></div>
         </div>
 
@@ -93,7 +116,7 @@ export const AuthPage: React.FC = () => {
           <button
             type="submit"
             disabled={isSending || !email.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center gap-2 shadow-lg"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center gap-2 shadow-lg cursor-pointer"
           >
             {isSending ? <Loader2 className="animate-spin" size={18} /> : null}
             {isSending ? 'Sending link...' : 'Send Magic Link'}
