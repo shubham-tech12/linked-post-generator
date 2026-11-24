@@ -38,8 +38,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
     const stripeLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK?.trim();
 
     if (!stripeLink) {
-      const demoActivate = window.confirm(
-        'Stripe Payment Link (VITE_STRIPE_PAYMENT_LINK) is not added in Vercel yet.\n\nClick OK to test Instant Pro Activation in Demo Mode, or Cancel to configure Stripe first.'
+       const demoActivate = window.confirm(
+        'Payment Link (VITE_STRIPE_PAYMENT_LINK) is not added in Vercel yet.\n\nClick OK to test Instant Pro Activation in Demo Mode, or Cancel to configure Dodo Payments first.'
       );
       if (demoActivate) {
         onUpgradeToPro();
@@ -209,8 +209,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
                     className="w-full py-3.5 px-4 rounded-xl bg-[#635BFF] hover:bg-[#5249f5] text-white text-sm font-bold shadow-lg shadow-[#635BFF]/30 flex items-center justify-center gap-2 transition cursor-pointer"
                   >
                     <CreditCard className="w-4 h-4" />
-                    <span>
-                      {isRedirecting ? 'Redirecting to Stripe...' : 'Pay $21/mo with Stripe'}
+                     <span>
+                      {isRedirecting ? 'Redirecting to Checkout...' : 'Upgrade to Pro — $21/mo'}
                     </span>
                     <ExternalLink className="w-3.5 h-3.5 opacity-80" />
                   </button>
