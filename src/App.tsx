@@ -895,6 +895,36 @@ ${sourceText}
           )}
         </section>
       </main>
+      {/* Footer with Legal Policies */}
+      <footer className="w-full border-t border-slate-800/80 bg-[#0B0F19] py-6 px-4 mt-12 text-center text-xs text-slate-400">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p>© 2026 LinkedIn Post AI. All rights reserved.</p>
+          <div className="flex items-center gap-5">
+            <a
+              href="/terms.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-indigo-400 transition"
+            >
+              Terms & Conditions
+            </a>
+            <a
+              href="/privacy.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-indigo-400 transition"
+            >
+              Privacy Policy
+            </a>
+            <a
+              href="mailto:shubhamsingh01205@gmail.com"
+              className="hover:text-indigo-400 transition"
+            >
+              Contact Support
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
