@@ -86,6 +86,21 @@ export default function App() {
   const loadUserUsageAndPlan = async () => {
     if (!user) return;
     const today = new Date().toISOString().slice(0, 10);
+    // Check if user just returned from Dodo Payments checkout
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+      await supabase.from('user_subscriptions').upsert({
+        user_id: user.id,
+        is_pro: true,
+        daily_used: 0,
+        usage_date: today,
+      });
+      setIsPro(true);
+      setDailyUsed(0);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      alert('🎉 Payment Successful! Welcome to Pro Creator Plan.');
+      return;
+    }
 
     const { data, error } = await supabase
       .from('user_subscriptions')
