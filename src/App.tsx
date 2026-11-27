@@ -71,32 +71,57 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load saved posts & user subscription/usage status
-   useEffect(() => {
+   // Load saved posts & user subscription/usage status from Supabase
+  useEffect(() => {
     if (user) {
       fetchSavedPosts();
-
-      // Check if user just returned from successful Stripe Checkout
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('payment') === 'success') {
-        localStorage.setItem(`pro_plan_${user.id}`, 'true');
-        setIsPro(true);
-        window.history.replaceState({}, document.title, window.location.pathname);
-        alert('🎉 Payment Successful! Welcome to Pro Creator Plan.');
-      } else {
-        const savedPro = localStorage.getItem(`pro_plan_${user.id}`) === 'true';
-        setIsPro(savedPro);
-      }
-
-      const todayKey = `usage_${user.id}_${new Date().toISOString().slice(0, 10)}`;
-      const usedCount = parseInt(localStorage.getItem(todayKey) || '0', 10);
-      setDailyUsed(isNaN(usedCount) ? 0 : usedCount);
+      loadUserUsageAndPlan();
     } else {
       setSavedPosts([]);
       setIsPro(false);
       setDailyUsed(0);
     }
   }, [user]);
+
+  const loadUserUsageAndPlan = async () => {
+    if (!user) return;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { data, error } = await supabase
+      .from('user_subscriptions')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error loading usage:', error);
+      return;
+    }
+
+    if (!data) {
+      await supabase.from('user_subscriptions').insert({
+        user_id: user.id,
+        is_pro: false,
+        daily_used: 0,
+        usage_date: today,
+      });
+      setIsPro(false);
+      setDailyUsed(0);
+      return;
+    }
+
+    let currentUsed = data.daily_used || 0;
+    if (data.usage_date !== today) {
+      currentUsed = 0;
+      await supabase
+        .from('user_subscriptions')
+        .update({ daily_used: 0, usage_date: today })
+        .eq('user_id', user.id);
+    }
+
+    setIsPro(Boolean(data.is_pro));
+    setDailyUsed(currentUsed);
+  };
 
   const remainingFreeUses = Math.max(0, DAILY_FREE_LIMIT - dailyUsed);
 
@@ -108,25 +133,40 @@ export default function App() {
     }
     const nextCount = dailyUsed + 1;
     setDailyUsed(nextCount);
+
     if (user) {
-      const todayKey = `usage_${user.id}_${new Date().toISOString().slice(0, 10)}`;
-      localStorage.setItem(todayKey, String(nextCount));
+      const today = new Date().toISOString().slice(0, 10);
+      supabase
+        .from('user_subscriptions')
+        .upsert({
+          user_id: user.id,
+          is_pro: isPro,
+          daily_used: nextCount,
+          usage_date: today,
+        })
+        .then(({ error }) => {
+          if (error) console.error('Failed to sync usage:', error);
+        });
     }
     return true;
   };
 
-  const handleUpgradeToPro = () => {
+  const handleUpgradeToPro = async () => {
     setIsPro(true);
     if (user) {
-      localStorage.setItem(`pro_plan_${user.id}`, 'true');
+      await supabase
+        .from('user_subscriptions')
+        .upsert({ user_id: user.id, is_pro: true });
     }
     setIsSubModalOpen(false);
   };
 
-  const handleDowngradeToFree = () => {
+  const handleDowngradeToFree = async () => {
     setIsPro(false);
     if (user) {
-      localStorage.removeItem(`pro_plan_${user.id}`);
+      await supabase
+        .from('user_subscriptions')
+        .upsert({ user_id: user.id, is_pro: false });
     }
   };
 
